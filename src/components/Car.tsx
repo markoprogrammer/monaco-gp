@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useRef, useCallback } from "react";
 import { useFrame } from "@react-three/fiber";
 import { RigidBody, CuboidCollider } from "@react-three/rapier";
 import type { RapierRigidBody } from "@react-three/rapier";
@@ -8,31 +8,39 @@ import { VEHICLE } from "../lib/physics-config";
 
 const _forward = new Vector3();
 const _right = new Vector3();
-const _vel = new Vector3();
 const _quat = new Quaternion();
 
-export default function Car() {
+interface CarProps {
+  onReady?: (rb: RapierRigidBody) => void;
+}
+
+export default function Car({ onReady }: CarProps) {
   const rigidBody = useRef<RapierRigidBody>(null);
   const input = useVehicleControls();
   const currentSpeed = useRef(0);
 
+  const rbRef = useCallback(
+    (node: RapierRigidBody | null) => {
+      rigidBody.current = node;
+      if (node && onReady) onReady(node);
+    },
+    [onReady]
+  );
+
   useFrame((_, delta) => {
     const rb = rigidBody.current;
     if (!rb) return;
-    // Cap delta to avoid physics explosion on tab-switch
     const dt = Math.min(delta, 0.05);
 
     const controls = input.current;
 
-    // Car's forward direction (Y-axis rotation only)
     const rotation = rb.rotation();
     _quat.set(rotation.x, rotation.y, rotation.z, rotation.w);
     _forward.set(0, 0, -1).applyQuaternion(_quat);
     _forward.y = 0;
     _forward.normalize();
-    _right.set(_forward.z, 0, -_forward.x); // perpendicular
+    _right.set(_forward.z, 0, -_forward.x);
 
-    // --- Speed control (direct velocity approach) ---
     let speed = currentSpeed.current;
 
     if (controls.forward) {
@@ -40,7 +48,6 @@ export default function Car() {
     } else if (controls.backward) {
       speed -= VEHICLE.brakeRate * dt;
     } else {
-      // Coast to stop
       if (speed > 0) {
         speed = Math.max(0, speed - VEHICLE.coastDecel * dt);
       } else if (speed < 0) {
@@ -48,19 +55,20 @@ export default function Car() {
       }
     }
 
-    // Clamp speed
+    // Handbrake slows the car down
+    if (controls.handbrake && speed > 0) {
+      speed = Math.max(0, speed - VEHICLE.handbrakeDecel * dt);
+    }
+
     speed = Math.max(-VEHICLE.maxReverseSpeed, Math.min(VEHICLE.maxForwardSpeed, speed));
     currentSpeed.current = speed;
 
-    // --- Steering ---
     const absSpeed = Math.abs(speed);
     if (absSpeed > 0.5) {
       const steerDir = (controls.left ? 1 : 0) - (controls.right ? 1 : 0);
       if (steerDir !== 0) {
-        // Steer less at high speed
         const speedRatio = absSpeed / VEHICLE.maxForwardSpeed;
         const steerFactor = 1 - speedRatio * (1 - VEHICLE.minSteerFactor);
-        // Reverse steering when going backwards
         const reverseSign = speed < 0 ? -1 : 1;
         const angularVel = steerDir * VEHICLE.maxSteerSpeed * steerFactor * reverseSign;
         rb.setAngvel({ x: 0, y: angularVel, z: 0 }, true);
@@ -71,14 +79,9 @@ export default function Car() {
       rb.setAngvel({ x: 0, y: 0, z: 0 }, true);
     }
 
-    // --- Apply velocity ---
     const currentLinvel = rb.linvel();
-
-    // Forward velocity from our speed
     const forwardVelX = _forward.x * speed;
     const forwardVelZ = _forward.z * speed;
-
-    // Lateral velocity (sideways slide)
     const lateralVel = currentLinvel.x * _right.x + currentLinvel.z * _right.z;
     const grip = controls.handbrake ? VEHICLE.driftLateralGrip : VEHICLE.normalLateralGrip;
     const keptLateral = lateralVel * (1 - grip);
@@ -86,7 +89,7 @@ export default function Car() {
     rb.setLinvel(
       {
         x: forwardVelX + _right.x * keptLateral,
-        y: currentLinvel.y, // preserve gravity
+        y: currentLinvel.y,
         z: forwardVelZ + _right.z * keptLateral,
       },
       true
@@ -95,7 +98,7 @@ export default function Car() {
 
   return (
     <RigidBody
-      ref={rigidBody}
+      ref={rbRef}
       colliders={false}
       position={[0, VEHICLE.spawnHeight, 0]}
       angularDamping={VEHICLE.angularDamping}
@@ -105,12 +108,10 @@ export default function Car() {
       <CuboidCollider
         args={[VEHICLE.width / 2, VEHICLE.height / 2, VEHICLE.length / 2]}
       />
-      {/* Car body */}
       <mesh castShadow>
         <boxGeometry args={[VEHICLE.width, VEHICLE.height, VEHICLE.length]} />
         <meshStandardMaterial color="#e03030" />
       </mesh>
-      {/* Cabin */}
       <mesh castShadow position={[0, 0.4, -0.3]}>
         <boxGeometry args={[VEHICLE.width * 0.7, 0.4, VEHICLE.length * 0.4]} />
         <meshStandardMaterial color="#cc2020" />

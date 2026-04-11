@@ -20,8 +20,9 @@ export const VEHICLE = {
   minSteerFactor: 0.3,
 
   // Drift / handbrake
-  driftLateralGrip: 0.85,  // 0 = ice, 1 = full grip
+  driftLateralGrip: 0.3,   // 0 = ice, 1 = full grip
   normalLateralGrip: 0.95,
+  handbrakeDecel: 12,       // speed reduction while handbrake held
 
   // Damping
   angularDamping: 10.0,
