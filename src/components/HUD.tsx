@@ -171,6 +171,11 @@ export default function HUD() {
           </div>
         )}
       </div>
+
+      {/* BOTTOM RIGHT — Controls hint */}
+      <div style={{ position: "absolute", bottom: 12, right: 12, fontSize: 10, opacity: 0.35 }}>
+        WASD drive · SPACE drift · R respawn
+      </div>
     </div>
   );
 }

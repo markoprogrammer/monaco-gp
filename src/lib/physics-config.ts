@@ -8,26 +8,27 @@ export const VEHICLE = {
   mass: 20,
 
   // Speed (units per second)
-  maxForwardSpeed: 65,
-  maxReverseSpeed: 10,
-  accelerationRate: 12,
-  brakeRate: 40,
-  coastDecel: 2,           // very slow natural decel — must brake!
+  maxForwardSpeed: 90,           // very fast — must manage throttle
+  maxReverseSpeed: 12,
+  accelerationRate: 22,          // powerful — causes wheelspin if not careful
+  brakeRate: 25,                 // progressive — must hold brake longer
+  coastDecel: 6,                  // noticeable engine brake when off throttle
 
   // Steering (radians per second)
-  maxSteerSpeed: 2.0,
-  minSteerFactor: 0.1,     // almost no steering at top speed
+  maxSteerSpeed: 1.8,            // less twitchy
+  minSteerFactor: 0.08,          // almost no steering at top speed — MUST slow down
 
   // Drift / handbrake
-  driftLateralGrip: 0.15,
-  normalLateralGrip: 0.95,
-  handbrakeDecel: 5,
+  driftLateralGrip: 0.12,        // slidier drift
+  normalLateralGrip: 0.82,       // slides on fast corners — must brake before turn
+  handbrakeDecel: 8,             // stronger handbrake slowdown
+  driftSteerBoost: 1.3,          // extra steering while drifting
 
   // Restitution (bounciness off walls)
-  restitution: 0.3,
+  restitution: 0.4,              // bouncier off walls
 
   // Damping
-  angularDamping: 10.0,
+  angularDamping: 8.0,           // less damping = car feels lighter
 
   // Spawn
   spawnHeight: 1,

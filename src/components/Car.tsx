@@ -18,6 +18,7 @@ interface CarProps {
 }
 
 const SPAWN_T = 0.28;
+const RESPAWN_SAMPLES = 200;
 
 export default function Car({ onReady }: CarProps) {
   const rigidBody = useRef<RapierRigidBody>(null);
@@ -27,14 +28,25 @@ export default function Car({ onReady }: CarProps) {
   const setSpeed = useGameState((s) => s.setSpeed);
   const tick = useGameState((s) => s.tick);
 
-  const { spawnPos, spawnRot } = useMemo(() => {
+  const { spawnPos, spawnRot, trackSamples } = useMemo(() => {
     const curve = new CatmullRomCurve3(TRACK_POINTS, true, "catmullrom", 0.5);
     const pt = curve.getPointAt(SPAWN_T);
     const tan = curve.getTangentAt(SPAWN_T);
     const angle = Math.atan2(tan.x, tan.z) + Math.PI;
+
+    // Pre-compute track samples for respawn nearest-point
+    const samples: { x: number; y: number; z: number; angle: number }[] = [];
+    for (let i = 0; i < RESPAWN_SAMPLES; i++) {
+      const t = i / RESPAWN_SAMPLES;
+      const p = curve.getPointAt(t);
+      const tn = curve.getTangentAt(t);
+      samples.push({ x: p.x, y: p.y, z: p.z, angle: Math.atan2(tn.x, tn.z) + Math.PI });
+    }
+
     return {
       spawnPos: [pt.x, pt.y + VEHICLE.spawnHeight, pt.z] as [number, number, number],
       spawnRot: [0, angle, 0] as [number, number, number],
+      trackSamples: samples,
     };
   }, []);
 
@@ -53,6 +65,24 @@ export default function Car({ onReady }: CarProps) {
 
     const controls = input.current;
 
+    // Respawn on R — nearest track point, facing correct direction
+    if (controls.reset) {
+      controls.reset = false;
+      const pos = rb.translation();
+      let bestD = Infinity, nearest = trackSamples[0]!;
+      for (const s of trackSamples) {
+        const d = (pos.x - s.x) ** 2 + (pos.z - s.z) ** 2;
+        if (d < bestD) { bestD = d; nearest = s; }
+      }
+      rb.setLinvel({ x: 0, y: 0, z: 0 }, true);
+      rb.setAngvel({ x: 0, y: 0, z: 0 }, true);
+      const ha = nearest.angle / 2;
+      rb.setTranslation({ x: nearest.x, y: nearest.y + 1, z: nearest.z }, true);
+      rb.setRotation({ x: 0, y: Math.sin(ha), z: 0, w: Math.cos(ha) }, true);
+      currentSpeed.current = 0;
+      return;
+    }
+
     const rotation = rb.rotation();
     _quat.set(rotation.x, rotation.y, rotation.z, rotation.w);
     _forward.set(0, 0, -1).applyQuaternion(_quat);
@@ -61,12 +91,18 @@ export default function Car({ onReady }: CarProps) {
     _right.set(_forward.z, 0, -_forward.x);
 
     let speed = currentSpeed.current;
+    const absSpd = Math.abs(speed);
 
     if (controls.forward) {
-      // Acceleration fades as speed increases (like real gears)
-      const speedRatio = Math.abs(speed) / VEHICLE.maxForwardSpeed;
-      const accelFactor = 1 - speedRatio * 0.7; // 100% at 0, 30% at max
-      speed += VEHICLE.accelerationRate * accelFactor * dt;
+      const speedRatio = absSpd / VEHICLE.maxForwardSpeed;
+      const accelFactor = (1 - speedRatio) * (0.4 + 0.6 * (1 - speedRatio));
+      const accel = VEHICLE.accelerationRate * accelFactor * dt;
+      speed += accel;
+      // Wheelspin — full throttle while turning at speed loses rear grip
+      const steerInput = (controls.left ? 1 : 0) + (controls.right ? 1 : 0);
+      if (steerInput > 0 && absSpd > 15) {
+        speed -= accel * 0.4 * (absSpd / VEHICLE.maxForwardSpeed);
+      }
     } else if (controls.backward) {
       speed -= VEHICLE.brakeRate * dt;
     } else {
@@ -96,8 +132,9 @@ export default function Car({ onReady }: CarProps) {
       if (steerDir !== 0) {
         const speedRatio = absSpeed / VEHICLE.maxForwardSpeed;
         const steerFactor = 1 - speedRatio * (1 - VEHICLE.minSteerFactor);
+        const driftBoost = controls.handbrake ? VEHICLE.driftSteerBoost : 1;
         const reverseSign = speed < 0 ? -1 : 1;
-        const angularVel = steerDir * VEHICLE.maxSteerSpeed * steerFactor * reverseSign;
+        const angularVel = steerDir * VEHICLE.maxSteerSpeed * steerFactor * driftBoost * reverseSign;
         rb.setAngvel({ x: 0, y: angularVel, z: 0 }, true);
       } else {
         rb.setAngvel({ x: 0, y: 0, z: 0 }, true);
@@ -112,17 +149,25 @@ export default function Car({ onReady }: CarProps) {
     const desiredVelX = _forward.x * speed;
     const desiredVelZ = _forward.z * speed;
 
-    // Lateral grip
+    // Lateral grip — loses grip when cornering fast or braking hard
     const lateralVel = currentLinvel.x * _right.x + currentLinvel.z * _right.z;
-    const grip = controls.handbrake ? VEHICLE.driftLateralGrip : VEHICLE.normalLateralGrip;
+    const steerDir = (controls.left ? 1 : 0) - (controls.right ? 1 : 0);
+    const corneringForce = Math.abs(steerDir) * (absSpeed / VEHICLE.maxForwardSpeed);
+    const brakeLock = controls.backward && absSpeed > 20 ? (absSpeed / VEHICLE.maxForwardSpeed) * 0.4 : 0;
+    const gripLoss = Math.min(0.5, corneringForce * 0.3 + brakeLock);
+    const baseGrip = controls.handbrake ? VEHICLE.driftLateralGrip : VEHICLE.normalLateralGrip;
+    const grip = baseGrip * (1 - gripLoss);
     const keptLateral = lateralVel * (1 - grip);
 
-    // Blend: 80% our control, 20% physics response (allows wall bounce)
-    const blend = 0.8;
+    const blend = 0.85;
+
+    // Clamp upward velocity — prevents bouncing on elevation changes
+    const yVel = Math.min(currentLinvel.y, 4);
+
     rb.setLinvel(
       {
         x: (desiredVelX + _right.x * keptLateral) * blend + currentLinvel.x * (1 - blend),
-        y: currentLinvel.y,
+        y: yVel,
         z: (desiredVelZ + _right.z * keptLateral) * blend + currentLinvel.z * (1 - blend),
       },
       true

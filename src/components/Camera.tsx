@@ -37,8 +37,8 @@ export default function ChaseCamera({ target }: ChaseCameraProps) {
     const speedPull = Math.min(speed / 25, 1) * 2; // extra pullback at speed
 
     // Ideal camera position: behind and above the car
-    _idealOffset.copy(_carForward).multiplyScalar(8 + speedPull).negate();
-    _idealOffset.y = 4 + speedPull * 0.5;
+    _idealOffset.copy(_carForward).multiplyScalar(6 + speedPull).negate();
+    _idealOffset.y = 3 + speedPull * 0.4;
     _idealOffset.add(_carPos);
 
     // Ideal look-at: slightly ahead of car

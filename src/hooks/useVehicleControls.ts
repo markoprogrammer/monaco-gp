@@ -6,6 +6,7 @@ export interface VehicleInput {
   left: boolean;
   right: boolean;
   handbrake: boolean;
+  reset: boolean;
 }
 
 export function useVehicleControls() {
@@ -15,6 +16,7 @@ export function useVehicleControls() {
     left: false,
     right: false,
     handbrake: false,
+    reset: false,
   });
 
   useEffect(() => {
@@ -28,6 +30,7 @@ export function useVehicleControls() {
       KeyD: "right",
       ArrowRight: "right",
       Space: "handbrake",
+      KeyR: "reset",
     };
 
     const onKeyDown = (e: KeyboardEvent) => {
