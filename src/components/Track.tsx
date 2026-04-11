@@ -142,8 +142,8 @@ export default function Track() {
 
     const centerLine = buildCenterLineGeometry(curve, ROAD_SEGMENTS);
 
-    const startPos = curve.getPointAt(0);
-    const startTangent = curve.getTangentAt(0);
+    const startPos = curve.getPointAt(0.29);
+    const startTangent = curve.getTangentAt(0.29);
     const startAngle = Math.atan2(startTangent.x, startTangent.z);
 
     return {
@@ -202,16 +202,16 @@ export default function Track() {
         <meshBasicMaterial color="#ffffff" />
       </mesh>
 
-      {/* Start/finish line — checkered pattern */}
-      <group position={[startPosition.x, startPosition.y + 0.006, startPosition.z]} rotation={[0, startRotation, 0]}>
-        {Array.from({ length: 12 }).map((_, col) =>
-          Array.from({ length: 2 }).map((_, row) => (
+      {/* Start/finish line — after tunnel exit, before Sainte Devote */}
+      <group position={[startPosition.x, startPosition.y + 0.05, startPosition.z]} rotation={[0, startRotation, 0]}>
+        {Array.from({ length: 14 }).map((_, col) =>
+          Array.from({ length: 3 }).map((_, row) => (
             <mesh
               key={`${col}-${row}`}
-              position={[(col - 5.5) * 1, 0, (row - 0.5) * 1]}
+              position={[(col - 6.5) * 1.1, 0, (row - 1) * 1.1]}
               rotation={[-Math.PI / 2, 0, 0]}
             >
-              <planeGeometry args={[1, 1]} />
+              <planeGeometry args={[1.1, 1.1]} />
               <meshBasicMaterial color={(col + row) % 2 === 0 ? "#ffffff" : "#111111"} />
             </mesh>
           ))

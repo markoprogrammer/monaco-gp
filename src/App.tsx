@@ -6,6 +6,8 @@ import Car from "./components/Car";
 import ChaseCamera from "./components/Camera";
 import Track from "./components/Track";
 import Environment from "./components/Environment";
+import LapSensors from "./components/LapSensors";
+import HUD from "./components/HUD";
 
 export default function App() {
   const carRef = useRef<RapierRigidBody | null>(null);
@@ -15,13 +17,17 @@ export default function App() {
   }, []);
 
   return (
-    <Canvas shadows dpr={[1, 2]} camera={{ position: [0, 10, 20], fov: 60 }}>
-      <Environment />
-      <Physics gravity={[0, -9.81, 0]}>
-        <Car onReady={onCarReady} />
-        <ChaseCamera target={carRef} />
-        <Track />
-      </Physics>
-    </Canvas>
+    <>
+      <Canvas shadows dpr={[1, 2]} camera={{ position: [0, 10, 20], fov: 60 }}>
+        <Environment />
+        <Physics gravity={[0, -9.81, 0]}>
+          <Car onReady={onCarReady} />
+          <ChaseCamera target={carRef} />
+          <Track />
+          <LapSensors />
+        </Physics>
+      </Canvas>
+      <HUD />
+    </>
   );
 }

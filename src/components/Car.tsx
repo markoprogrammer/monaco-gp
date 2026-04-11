@@ -1,11 +1,13 @@
-import { useRef, useCallback } from "react";
+import { useRef, useCallback, useMemo } from "react";
 import { useFrame } from "@react-three/fiber";
 import { RigidBody, CuboidCollider } from "@react-three/rapier";
 import type { RapierRigidBody } from "@react-three/rapier";
-import { Vector3, Quaternion } from "three";
+import { Vector3, Quaternion, CatmullRomCurve3 } from "three";
 import { useVehicleControls } from "../hooks/useVehicleControls";
 import { useEngineSound } from "../hooks/useEngineSound";
+import { useGameState } from "../hooks/useGameState";
 import { VEHICLE } from "../lib/physics-config";
+import { TRACK_POINTS } from "../lib/track-data";
 
 const _forward = new Vector3();
 const _right = new Vector3();
@@ -15,11 +17,26 @@ interface CarProps {
   onReady?: (rb: RapierRigidBody) => void;
 }
 
+const SPAWN_T = 0.28;
+
 export default function Car({ onReady }: CarProps) {
   const rigidBody = useRef<RapierRigidBody>(null);
   const input = useVehicleControls();
   const currentSpeed = useRef(0);
   const updateEngineSound = useEngineSound();
+  const setSpeed = useGameState((s) => s.setSpeed);
+  const tick = useGameState((s) => s.tick);
+
+  const { spawnPos, spawnRot } = useMemo(() => {
+    const curve = new CatmullRomCurve3(TRACK_POINTS, true, "catmullrom", 0.5);
+    const pt = curve.getPointAt(SPAWN_T);
+    const tan = curve.getTangentAt(SPAWN_T);
+    const angle = Math.atan2(tan.x, tan.z) + Math.PI;
+    return {
+      spawnPos: [pt.x, pt.y + VEHICLE.spawnHeight, pt.z] as [number, number, number],
+      spawnRot: [0, angle, 0] as [number, number, number],
+    };
+  }, []);
 
   const rbRef = useCallback(
     (node: RapierRigidBody | null) => {
@@ -68,8 +85,10 @@ export default function Car({ onReady }: CarProps) {
     speed = Math.max(-VEHICLE.maxReverseSpeed, Math.min(VEHICLE.maxForwardSpeed, speed));
     currentSpeed.current = speed;
 
-    // Engine sound
+    // Engine sound + HUD speed + lap timer
     updateEngineSound(Math.abs(speed) / VEHICLE.maxForwardSpeed);
+    setSpeed(Math.abs(speed));
+    tick(dt);
 
     const absSpeed = Math.abs(speed);
     if (absSpeed > 0.5) {
@@ -114,7 +133,8 @@ export default function Car({ onReady }: CarProps) {
     <RigidBody
       ref={rbRef}
       colliders={false}
-      position={[-22.5, VEHICLE.spawnHeight, 15]}
+      position={spawnPos}
+      rotation={spawnRot}
       angularDamping={VEHICLE.angularDamping}
       mass={VEHICLE.mass}
       enabledRotations={[false, true, false]}
