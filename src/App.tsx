@@ -4,6 +4,7 @@ import { CuboidCollider, Physics, RigidBody } from "@react-three/rapier";
 import type { RapierRigidBody } from "@react-three/rapier";
 import Car from "./components/Car";
 import ChaseCamera from "./components/Camera";
+import Track from "./components/Track";
 
 export default function App() {
   const carRef = useRef<RapierRigidBody | null>(null);
@@ -19,14 +20,12 @@ export default function App() {
       <Physics gravity={[0, -9.81, 0]}>
         <Car onReady={onCarReady} />
         <ChaseCamera target={carRef} />
-        {/* Ground */}
-        <RigidBody type="fixed" colliders={false}>
-          <CuboidCollider args={[100, 0.1, 100]} position={[0, -0.1, 0]} />
-          <mesh receiveShadow rotation-x={-Math.PI / 2}>
-            <planeGeometry args={[200, 200]} />
-            <meshStandardMaterial color="#4a7c59" />
-          </mesh>
-        </RigidBody>
+        <Track />
+        {/* Ground visual (no physics — track has its own collider) */}
+        <mesh receiveShadow rotation-x={-Math.PI / 2} position={[0, -0.5, 0]}>
+          <planeGeometry args={[600, 600]} />
+          <meshStandardMaterial color="#4a7c59" />
+        </mesh>
       </Physics>
     </Canvas>
   );

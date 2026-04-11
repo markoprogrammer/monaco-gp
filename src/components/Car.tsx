@@ -4,6 +4,7 @@ import { RigidBody, CuboidCollider } from "@react-three/rapier";
 import type { RapierRigidBody } from "@react-three/rapier";
 import { Vector3, Quaternion } from "three";
 import { useVehicleControls } from "../hooks/useVehicleControls";
+import { useEngineSound } from "../hooks/useEngineSound";
 import { VEHICLE } from "../lib/physics-config";
 
 const _forward = new Vector3();
@@ -18,6 +19,7 @@ export default function Car({ onReady }: CarProps) {
   const rigidBody = useRef<RapierRigidBody>(null);
   const input = useVehicleControls();
   const currentSpeed = useRef(0);
+  const updateEngineSound = useEngineSound();
 
   const rbRef = useCallback(
     (node: RapierRigidBody | null) => {
@@ -44,7 +46,10 @@ export default function Car({ onReady }: CarProps) {
     let speed = currentSpeed.current;
 
     if (controls.forward) {
-      speed += VEHICLE.accelerationRate * dt;
+      // Acceleration fades as speed increases (like real gears)
+      const speedRatio = Math.abs(speed) / VEHICLE.maxForwardSpeed;
+      const accelFactor = 1 - speedRatio * 0.7; // 100% at 0, 30% at max
+      speed += VEHICLE.accelerationRate * accelFactor * dt;
     } else if (controls.backward) {
       speed -= VEHICLE.brakeRate * dt;
     } else {
@@ -63,6 +68,9 @@ export default function Car({ onReady }: CarProps) {
     speed = Math.max(-VEHICLE.maxReverseSpeed, Math.min(VEHICLE.maxForwardSpeed, speed));
     currentSpeed.current = speed;
 
+    // Engine sound
+    updateEngineSound(Math.abs(speed) / VEHICLE.maxForwardSpeed);
+
     const absSpeed = Math.abs(speed);
     if (absSpeed > 0.5) {
       const steerDir = (controls.left ? 1 : 0) - (controls.right ? 1 : 0);
@@ -79,18 +87,24 @@ export default function Car({ onReady }: CarProps) {
       rb.setAngvel({ x: 0, y: 0, z: 0 }, true);
     }
 
+    // --- Apply velocity (blend with physics for wall bounce) ---
     const currentLinvel = rb.linvel();
-    const forwardVelX = _forward.x * speed;
-    const forwardVelZ = _forward.z * speed;
+
+    const desiredVelX = _forward.x * speed;
+    const desiredVelZ = _forward.z * speed;
+
+    // Lateral grip
     const lateralVel = currentLinvel.x * _right.x + currentLinvel.z * _right.z;
     const grip = controls.handbrake ? VEHICLE.driftLateralGrip : VEHICLE.normalLateralGrip;
     const keptLateral = lateralVel * (1 - grip);
 
+    // Blend: 80% our control, 20% physics response (allows wall bounce)
+    const blend = 0.8;
     rb.setLinvel(
       {
-        x: forwardVelX + _right.x * keptLateral,
+        x: (desiredVelX + _right.x * keptLateral) * blend + currentLinvel.x * (1 - blend),
         y: currentLinvel.y,
-        z: forwardVelZ + _right.z * keptLateral,
+        z: (desiredVelZ + _right.z * keptLateral) * blend + currentLinvel.z * (1 - blend),
       },
       true
     );
@@ -100,13 +114,15 @@ export default function Car({ onReady }: CarProps) {
     <RigidBody
       ref={rbRef}
       colliders={false}
-      position={[0, VEHICLE.spawnHeight, 0]}
+      position={[-22.5, VEHICLE.spawnHeight, 15]}
       angularDamping={VEHICLE.angularDamping}
       mass={VEHICLE.mass}
       enabledRotations={[false, true, false]}
     >
       <CuboidCollider
         args={[VEHICLE.width / 2, VEHICLE.height / 2, VEHICLE.length / 2]}
+        restitution={VEHICLE.restitution}
+        friction={0.5}
       />
       <mesh castShadow>
         <boxGeometry args={[VEHICLE.width, VEHICLE.height, VEHICLE.length]} />

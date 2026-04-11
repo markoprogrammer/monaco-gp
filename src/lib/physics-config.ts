@@ -8,25 +8,27 @@ export const VEHICLE = {
   mass: 20,
 
   // Speed (units per second)
-  maxForwardSpeed: 25,
-  maxReverseSpeed: 8,
-  accelerationRate: 15, // how fast we reach max speed
-  brakeRate: 25,        // how fast we stop
-  coastDecel: 8,        // natural slowdown when no input
+  maxForwardSpeed: 65,
+  maxReverseSpeed: 10,
+  accelerationRate: 12,
+  brakeRate: 40,
+  coastDecel: 2,           // very slow natural decel — must brake!
 
   // Steering (radians per second)
-  maxSteerSpeed: 2.5,
-  // Steering reduces at high speed
-  minSteerFactor: 0.3,
+  maxSteerSpeed: 2.0,
+  minSteerFactor: 0.1,     // almost no steering at top speed
 
   // Drift / handbrake
-  driftLateralGrip: 0.3,   // 0 = ice, 1 = full grip
+  driftLateralGrip: 0.15,
   normalLateralGrip: 0.95,
-  handbrakeDecel: 12,       // speed reduction while handbrake held
+  handbrakeDecel: 5,
+
+  // Restitution (bounciness off walls)
+  restitution: 0.3,
 
   // Damping
   angularDamping: 10.0,
 
   // Spawn
-  spawnHeight: 2,
+  spawnHeight: 1,
 } as const;
