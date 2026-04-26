@@ -172,7 +172,7 @@ export default function Track() {
       </RigidBody>
 
       {/* Left guardrail — visual + physics */}
-      <RigidBody type="fixed" colliders={false}>
+      <RigidBody type="fixed" colliders={false} userData={{ tag: "wall" }}>
         <TrimeshCollider
           args={[
             leftWallGeom.attributes.position!.array as Float32Array,
@@ -185,7 +185,7 @@ export default function Track() {
       </RigidBody>
 
       {/* Right guardrail — visual + physics */}
-      <RigidBody type="fixed" colliders={false}>
+      <RigidBody type="fixed" colliders={false} userData={{ tag: "wall" }}>
         <TrimeshCollider
           args={[
             rightWallGeom.attributes.position!.array as Float32Array,

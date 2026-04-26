@@ -26,12 +26,17 @@ interface GameState {
   checkpointPassed: boolean;
   speed: number;
 
+  // Race
+  position: number;        // 1-based rank vs bots
+  fieldSize: number;       // total entrants (player + bots)
+
   setSpeed: (speed: number) => void;
   passCheckpoint: () => void;
   hitSector1: () => void;
   hitSector2: () => void;
   crossFinishLine: () => void;
   tick: (delta: number) => void;
+  setPosition: (rank: number, total: number) => void;
 }
 
 export const useGameState = create<GameState>((set, get) => ({
@@ -54,9 +59,18 @@ export const useGameState = create<GameState>((set, get) => ({
   prevBestLap: null,
   checkpointPassed: false,
   speed: 0,
+  position: 1,
+  fieldSize: 1,
 
   setSpeed: (speed) => set({ speed }),
   passCheckpoint: () => set({ checkpointPassed: true }),
+
+  setPosition: (rank, total) => {
+    const cur = get();
+    if (cur.position !== rank || cur.fieldSize !== total) {
+      set({ position: rank, fieldSize: total });
+    }
+  },
 
   hitSector1: () => {
     const { currentLap, s1Time, lapTime } = get();

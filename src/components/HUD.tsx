@@ -1,6 +1,18 @@
-import { createPortal } from "react-dom";
+import { useEffect, useState } from "react";
 import { useGameState } from "../hooks/useGameState";
 import { VEHICLE } from "../lib/physics-config";
+
+function useIsTouch() {
+  const [isTouch, setIsTouch] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(pointer: coarse)");
+    const update = () => setIsTouch(mq.matches || "ontouchstart" in window);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
+  return isTouch;
+}
 
 function fmt(seconds: number): string {
   const m = Math.floor(seconds / 60);
@@ -37,20 +49,20 @@ function Tacho({ ratio }: { ratio: number }) {
   );
 }
 
-function SectorRow({ label, time, best }: { label: string; time: number | null; best: number | null }) {
+function SectorRow({ label, time, best, fontSize = 12, padding = "2px 0" }: { label: string; time: number | null; best: number | null; fontSize?: number; padding?: string }) {
   if (time === null) return (
-    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, opacity: 0.3, padding: "2px 0" }}>
+    <div style={{ display: "flex", justifyContent: "space-between", fontSize, opacity: 0.3, padding }}>
       <span>{label}</span><span>--:--.---</span>
     </div>
   );
   const delta = best !== null ? time - best : null;
   const isBest = delta === null || delta <= 0.001;
   return (
-    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "2px 0", gap: 8 }}>
+    <div style={{ display: "flex", justifyContent: "space-between", fontSize, padding, gap: 8 }}>
       <span style={{ width: 20 }}>{label}</span>
       <span style={{ color: isBest ? "#22c55e" : "#f59e0b", flex: 1, textAlign: "right" }}>{fmt(time)}</span>
       {delta !== null && (
-        <span style={{ fontSize: 10, width: 55, textAlign: "right", color: isBest ? "#22c55e" : "#ef4444" }}>
+        <span style={{ fontSize: fontSize - 2, width: 55, textAlign: "right", color: isBest ? "#22c55e" : "#ef4444" }}>
           {fmtDelta(delta)}
         </span>
       )}
@@ -76,9 +88,20 @@ export default function HUD() {
   const prevBestS2 = useGameState((s) => s.prevBestS2);
   const prevBestS3 = useGameState((s) => s.prevBestS3);
   const prevBestLap = useGameState((s) => s.prevBestLap);
+  const position = useGameState((s) => s.position);
+  const fieldSize = useGameState((s) => s.fieldSize);
 
+  const isTouch = useIsTouch();
   const kmh = Math.round(speed * 3.6);
   const rpmRatio = Math.min(1, speed / VEHICLE.maxForwardSpeed);
+
+  // Compact sizing on touch to avoid overlap with mobile pedals
+  const minW = isTouch ? 130 : 190;
+  const lapFs = isTouch ? 18 : 26;
+  const lapPad = isTouch ? "3px 8px" : "6px 12px";
+  const sectorFs = isTouch ? 10 : 12;
+  const sectorPad = isTouch ? "1px 0" : "2px 0";
+  const lastBestFs = isTouch ? 10 : 12;
 
   // Current sector times
   const curS1 = s1Time;
@@ -100,6 +123,30 @@ export default function HUD() {
       zIndex: 9999, pointerEvents: "none", overflow: "hidden",
       fontFamily: "'Courier New', monospace", color: "#fff",
     }}>
+      {/* TOP CENTER — Position */}
+      {fieldSize > 1 && (
+        <div style={{
+          position: "absolute",
+          top: isTouch ? 8 : 12,
+          left: "50%",
+          transform: "translateX(-50%)",
+        }}>
+          <div style={{
+            ...box,
+            padding: isTouch ? "4px 14px" : "6px 18px",
+            display: "flex",
+            alignItems: "baseline",
+            gap: 6,
+          }}>
+            <span style={{ fontSize: isTouch ? 9 : 11, opacity: 0.5 }}>POS</span>
+            <span style={{ fontSize: isTouch ? 22 : 30, fontWeight: "bold", color: position === 1 ? "#a855f7" : "#fff" }}>
+              {position}
+            </span>
+            <span style={{ fontSize: isTouch ? 11 : 14, opacity: 0.5 }}>/{fieldSize}</span>
+          </div>
+        </div>
+      )}
+
       {/* TOP LEFT — Tacho + Speed */}
       <div style={{ position: "absolute", top: 16, left: 16 }}>
         <div style={{ ...box, padding: 0, width: 110, overflow: "hidden", display: "flex", flexDirection: "column", alignItems: "center" }}>
@@ -116,34 +163,34 @@ export default function HUD() {
         {currentLap > 0 ? (
           <>
             {/* Lap timer */}
-            <div style={{ ...box, minWidth: 190 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-                <span style={{ fontSize: 11, opacity: 0.5 }}>LAP {currentLap}</span>
-                <span style={{ fontSize: 26, fontWeight: "bold", letterSpacing: -1 }}>{fmt(lapTime)}</span>
+            <div style={{ ...box, minWidth: minW, padding: lapPad }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
+                <span style={{ fontSize: isTouch ? 9 : 11, opacity: 0.5 }}>LAP {currentLap}</span>
+                <span style={{ fontSize: lapFs, fontWeight: "bold", letterSpacing: -1 }}>{fmt(lapTime)}</span>
               </div>
             </div>
 
             {/* Sectors */}
-            <div style={{ ...box, minWidth: 190 }}>
-              <div style={{ fontSize: 9, opacity: 0.4, marginBottom: 2 }}>{showLast ? "LAST LAP" : "SECTORS"}</div>
+            <div style={{ ...box, minWidth: minW, padding: lapPad }}>
+              <div style={{ fontSize: isTouch ? 8 : 9, opacity: 0.4, marginBottom: 2 }}>{showLast ? "LAST LAP" : "SECTORS"}</div>
               {showLast ? (
                 <>
-                  <SectorRow label="S1" time={lastS1} best={prevBestS1} />
-                  <SectorRow label="S2" time={lastS2} best={prevBestS2} />
-                  <SectorRow label="S3" time={lastS3} best={prevBestS3} />
+                  <SectorRow label="S1" time={lastS1} best={prevBestS1} fontSize={sectorFs} padding={sectorPad} />
+                  <SectorRow label="S2" time={lastS2} best={prevBestS2} fontSize={sectorFs} padding={sectorPad} />
+                  <SectorRow label="S3" time={lastS3} best={prevBestS3} fontSize={sectorFs} padding={sectorPad} />
                 </>
               ) : (
                 <>
-                  <SectorRow label="S1" time={curS1} best={bestS1} />
-                  <SectorRow label="S2" time={curS2} best={bestS2} />
-                  <SectorRow label="S3" time={curS3} best={bestS3} />
+                  <SectorRow label="S1" time={curS1} best={bestS1} fontSize={sectorFs} padding={sectorPad} />
+                  <SectorRow label="S2" time={curS2} best={bestS2} fontSize={sectorFs} padding={sectorPad} />
+                  <SectorRow label="S3" time={curS3} best={bestS3} fontSize={sectorFs} padding={sectorPad} />
                 </>
               )}
             </div>
 
             {/* Last + Best laps */}
             {(lastLapTime !== null || bestLapTime !== null) && (
-              <div style={{ ...box, minWidth: 190, fontSize: 12 }}>
+              <div style={{ ...box, minWidth: minW, padding: lapPad, fontSize: lastBestFs }}>
                 {lastLapTime !== null && (
                   <div style={{ display: "flex", justifyContent: "space-between", padding: "1px 0" }}>
                     <span style={{ opacity: 0.5 }}>LAST</span>
@@ -172,8 +219,8 @@ export default function HUD() {
         )}
       </div>
 
-      {/* BOTTOM RIGHT — Controls hint */}
-      <div style={{ position: "absolute", bottom: 12, right: 12, fontSize: 10, opacity: 0.35 }}>
+      {/* BOTTOM RIGHT — Controls hint (desktop only) */}
+      <div className="desktop-only" style={{ position: "absolute", bottom: 12, right: 12, fontSize: 10, opacity: 0.35 }}>
         WASD drive · SPACE drift · R respawn
       </div>
     </div>

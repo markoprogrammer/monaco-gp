@@ -8,11 +8,11 @@ export const VEHICLE = {
   mass: 20,
 
   // Speed (units per second)
-  maxForwardSpeed: 90,           // very fast — must manage throttle
-  maxReverseSpeed: 12,
-  accelerationRate: 22,          // powerful — causes wheelspin if not careful
-  brakeRate: 25,                 // progressive — must hold brake longer
-  coastDecel: 6,                  // noticeable engine brake when off throttle
+  maxForwardSpeed: 105,          // ~378 km/h, full F1 pace
+  maxReverseSpeed: 14,
+  accelerationRate: 32,          // explosive launch, F1-like power-to-weight
+  brakeRate: 38,                 // strong braking — Space is the main pedal
+  coastDecel: 7,                 // engine brake when off throttle
 
   // Steering (radians per second)
   maxSteerSpeed: 1.8,            // less twitchy
@@ -32,4 +32,14 @@ export const VEHICLE = {
 
   // Spawn
   spawnHeight: 1,
+
+  // Collider Y offset — shifts the collider up within the rigid body so the
+  // visual car settles closer to the ground (wheels on the road instead of floating).
+  // Half-height 0.3 + wheel-bottom local -0.277 → 0.023 puts wheels exactly on road.
+  // A bit more lets the tires "bite" into the surface for a planted look.
+  colliderYOffset: 0.05,
+
+  // Wall hit — instant speed drop on impact, gentle decel while scraping
+  wallImpactSpeedFactor: 0.7,    // currentSpeed *= this on collision enter
+  wallScrapeDecel: 6,            // gentle additional decel while still in contact
 } as const;

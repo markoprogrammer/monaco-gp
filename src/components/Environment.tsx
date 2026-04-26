@@ -1,6 +1,5 @@
 import { useMemo } from "react";
-import { Sky, Clouds, Cloud } from "@react-three/drei";
-import { MeshBasicMaterial, BufferGeometry, Float32BufferAttribute, CatmullRomCurve3, CanvasTexture, NearestFilter, RepeatWrapping } from "three";
+import { BufferGeometry, Float32BufferAttribute, CatmullRomCurve3, CanvasTexture, NearestFilter, RepeatWrapping, BackSide, SphereGeometry, Color } from "three";
 import { TRACK_POINTS, TRACK_WIDTH } from "../lib/track-data";
 
 const SUN_POS: [number, number, number] = [-300, 130, -50];
@@ -815,16 +814,227 @@ function buildBeachGeometry() {
   return geom;
 }
 
+/** Procedural sky dome — inverted sphere with vertex gradient */
+function buildSkyDome() {
+  const g = new SphereGeometry(900, 32, 16);
+  const pos = g.attributes.position!;
+  const colors = new Float32Array(pos.count * 3);
+  const horizon = new Color("#e4ecf4");
+  const zenith = new Color("#4a90d0");
+  const v = new Color();
+  for (let i = 0; i < pos.count; i++) {
+    const y = pos.getY(i);
+    const t = Math.max(0, Math.min(1, (y + 100) / 900));
+    v.copy(horizon).lerp(zenith, t);
+    colors[i * 3] = v.r;
+    colors[i * 3 + 1] = v.g;
+    colors[i * 3 + 2] = v.b;
+  }
+  g.setAttribute("color", new Float32BufferAttribute(colors, 3));
+  return g;
+}
+
+/** Fluffy cloud built from overlapping spheres */
+function Cloud({ position, scale = 12 }: { position: [number, number, number]; scale?: number }) {
+  const puffs: [number, number, number, number][] = [
+    [0,     0,     0,    1.0],
+    [0.95, -0.1,   0.05, 0.75],
+    [-0.9,  0.05,  0.1,  0.8],
+    [0.25,  0.35,  0.4,  0.6],
+    [-0.35, 0.3,  -0.35, 0.65],
+    [0.55, -0.2,  -0.3,  0.55],
+    [-0.55,-0.25,  0.3,  0.5],
+  ];
+  return (
+    <group position={position} scale={scale}>
+      {puffs.map(([x, y, z, s], i) => (
+        <mesh key={i} position={[x, y, z]}>
+          <sphereGeometry args={[s, 8, 6]} />
+          <meshBasicMaterial color="#ffffff" />
+        </mesh>
+      ))}
+    </group>
+  );
+}
+
+/** Simple palm tree — trunk + splayed fronds */
+function PalmTree({ position, scale = 1 }: { position: [number, number, number]; scale?: number }) {
+  const trunkH = 4.5;
+  const fronds = 7;
+  return (
+    <group position={position} scale={scale}>
+      <mesh position={[0, trunkH / 2, 0]} castShadow>
+        <cylinderGeometry args={[0.18, 0.3, trunkH, 8]} />
+        <meshStandardMaterial color="#6b4a28" roughness={0.95} />
+      </mesh>
+      {Array.from({ length: fronds }).map((_, i) => {
+        const a = (i / fronds) * Math.PI * 2;
+        return (
+          <mesh
+            key={i}
+            position={[Math.cos(a) * 0.6, trunkH + 0.1, Math.sin(a) * 0.6]}
+            rotation={[0.35 * Math.sin(a), -a, 0.35 * Math.cos(a)]}
+            castShadow
+          >
+            <boxGeometry args={[0.2, 0.08, 2.0]} />
+            <meshStandardMaterial color={i % 2 ? "#3e7a2e" : "#4f9a3a"} roughness={0.7} />
+          </mesh>
+        );
+      })}
+      {/* Coconut cluster */}
+      <mesh position={[0, trunkH, 0]}>
+        <sphereGeometry args={[0.35, 8, 6]} />
+        <meshStandardMaterial color="#4a3520" />
+      </mesh>
+    </group>
+  );
+}
+
+/** Harbour yacht */
+function Yacht({ position, rotation = 0, scale = 1, hull = "#ffffff" }:
+  { position: [number, number, number]; rotation?: number; scale?: number; hull?: string }) {
+  return (
+    <group position={position} rotation={[0, rotation, 0]} scale={scale}>
+      <mesh position={[0, 0.3, 0]} castShadow>
+        <boxGeometry args={[2.2, 0.6, 7]} />
+        <meshStandardMaterial color={hull} />
+      </mesh>
+      <mesh position={[0, 0.05, 3.3]} castShadow>
+        <boxGeometry args={[2.0, 0.6, 0.8]} />
+        <meshStandardMaterial color={hull} />
+      </mesh>
+      <mesh position={[0, 0.9, -0.8]} castShadow>
+        <boxGeometry args={[1.7, 0.6, 3.4]} />
+        <meshStandardMaterial color="#f0f0f0" />
+      </mesh>
+      <mesh position={[0, 0.95, -0.8]}>
+        <boxGeometry args={[1.72, 0.3, 3.3]} />
+        <meshStandardMaterial color="#1a2540" />
+      </mesh>
+      {/* small mast */}
+      <mesh position={[0, 2.2, -1.0]}>
+        <cylinderGeometry args={[0.04, 0.04, 2.4, 6]} />
+        <meshStandardMaterial color="#cccccc" />
+      </mesh>
+    </group>
+  );
+}
+
+/** Grandstand — stepped seats with colourful crowd specks */
+function Grandstand({ position, rotation = 0, length = 26 }:
+  { position: [number, number, number]; rotation?: number; length?: number }) {
+  const rows = 5;
+  const seatsPerRow = 20;
+  const shirts = ["#e23030", "#3050e0", "#f0c040", "#40a050", "#ff7020", "#9040c0", "#ffffff", "#20b0c0"];
+  return (
+    <group position={position} rotation={[0, rotation, 0]}>
+      {Array.from({ length: rows }).map((_, r) => (
+        <mesh key={`step-${r}`} position={[0, r * 0.7 + 0.35, -r * 1.0]} castShadow receiveShadow>
+          <boxGeometry args={[length, 0.7, 1.0]} />
+          <meshStandardMaterial color="#2a2a2a" />
+        </mesh>
+      ))}
+      {Array.from({ length: rows }).map((_, r) =>
+        Array.from({ length: seatsPerRow }).map((_, c) => (
+          <mesh
+            key={`p-${r}-${c}`}
+            position={[(c - (seatsPerRow - 1) / 2) * (length / seatsPerRow), r * 0.7 + 1.05, -r * 1.0 - 0.2]}
+          >
+            <boxGeometry args={[0.35, 0.7, 0.35]} />
+            <meshStandardMaterial color={shirts[(c * 3 + r * 5) % shirts.length]!} />
+          </mesh>
+        ))
+      )}
+      {/* Roof beam */}
+      <mesh position={[0, rows * 0.7 + 2.5, -rows * 1.0 + 0.5]} castShadow>
+        <boxGeometry args={[length + 2, 0.15, (rows + 1) * 1.0]} />
+        <meshStandardMaterial color="#e0e0e0" />
+      </mesh>
+      {/* Roof supports */}
+      {[-length / 2 + 1, 0, length / 2 - 1].map((x, i) => (
+        <mesh key={`sup-${i}`} position={[x, rows * 0.7 + 1.2, -rows * 1.0 + 0.5]}>
+          <boxGeometry args={[0.2, 2.8, 0.2]} />
+          <meshStandardMaterial color="#b0b0b0" />
+        </mesh>
+      ))}
+    </group>
+  );
+}
+
+/** Colorful sponsor banner/board */
+function Banner({ position, rotation = 0, width = 4, color = "#e03040", accent = "#ffffff" }:
+  { position: [number, number, number]; rotation?: number; width?: number; color?: string; accent?: string }) {
+  return (
+    <group position={position} rotation={[0, rotation, 0]}>
+      <mesh>
+        <boxGeometry args={[width, 1.0, 0.1]} />
+        <meshStandardMaterial color={color} />
+      </mesh>
+      {/* accent stripe */}
+      <mesh position={[0, 0, 0.06]}>
+        <boxGeometry args={[width * 0.95, 0.2, 0.02]} />
+        <meshStandardMaterial color={accent} />
+      </mesh>
+      {/* posts */}
+      <mesh position={[-width / 2 + 0.1, -0.7, 0]}>
+        <boxGeometry args={[0.08, 1.4, 0.08]} />
+        <meshStandardMaterial color="#606060" />
+      </mesh>
+      <mesh position={[width / 2 - 0.1, -0.7, 0]}>
+        <boxGeometry args={[0.08, 1.4, 0.08]} />
+        <meshStandardMaterial color="#606060" />
+      </mesh>
+    </group>
+  );
+}
+
+const SKY_DOME_GEOM = buildSkyDome();
+
+// Palm tree positions — along the coast between beach and track
+const PALM_POSITIONS: [number, number, number][] = [
+  [-38, 0, -90], [-42, 0, -70], [-40, 0, -50], [-39, 0, -30], [-42, 0, -10],
+  [-40, 0, 10], [-38, 0, 30], [-42, 0, 50], [-40, 0, 70], [-38, 0, 90],
+  [-45, 0, 110], [-50, 0, 130], [-30, 0, 70], [-32, 0, 50], [-34, 0, 100],
+];
+
+// Yacht positions — scattered in sea near harbour
+const YACHT_POSITIONS: { pos: [number, number, number]; rot: number; scale: number; hull: string }[] = [
+  { pos: [-80,  -0.15, -40], rot: 0.3, scale: 1.0, hull: "#ffffff" },
+  { pos: [-95,  -0.15, -10], rot: -0.2, scale: 1.3, hull: "#f5f5f5" },
+  { pos: [-72,  -0.15, 20],  rot: 0.5, scale: 0.9, hull: "#ffffff" },
+  { pos: [-110, -0.15, 40],  rot: -0.4, scale: 1.5, hull: "#ebebeb" },
+  { pos: [-85,  -0.15, 80],  rot: 0.2, scale: 1.1, hull: "#ffffff" },
+  { pos: [-100, -0.15, 120], rot: 0.8, scale: 1.2, hull: "#f8f8f8" },
+  { pos: [-130, -0.15, -60], rot: -0.3, scale: 1.4, hull: "#ffffff" },
+  { pos: [-75,  -0.15, -75], rot: 0.6, scale: 0.85, hull: "#f0f0f0" },
+];
+
+// Cloud positions — scattered, high up, out of the track's way
+const CLOUD_POSITIONS: { pos: [number, number, number]; scale: number }[] = [
+  { pos: [-180, 140, -160], scale: 18 },
+  { pos: [ 160, 150, -220], scale: 15 },
+  { pos: [ 350, 145,  140], scale: 20 },
+  { pos: [-140, 160,  200], scale: 22 },
+  { pos: [ 240, 148, -120], scale: 16 },
+  { pos: [ 400, 135,  180], scale: 17 },
+  { pos: [-250, 155, -230], scale: 19 },
+  { pos: [ 200, 140,  250], scale: 18 },
+  { pos: [-220, 160,  160], scale: 16 },
+  { pos: [ 350, 150, -180], scale: 14 },
+];
+
 export default function Environment() {
   const beachGeom = useMemo(() => buildBeachGeometry(), []);
   const supportGeom = useMemo(() => buildSupportGeometry(), []);
 
   return (
     <>
-      {/* Sky shader — spring day */}
-      <Sky sunPosition={SUN_POS} turbidity={2} rayleigh={1} />
+      {/* Procedural sky dome — gradient via vertex colors */}
+      <mesh geometry={SKY_DOME_GEOM} frustumCulled={false}>
+        <meshBasicMaterial vertexColors side={BackSide} depthWrite={false} fog={false} />
+      </mesh>
 
-      {/* Sun disc — just the core, no glow/rays */}
+      {/* Sun disc */}
       <mesh position={SUN_POS}>
         <sphereGeometry args={[10, 32, 32]} />
         <meshBasicMaterial color="#ffee00" depthWrite={false} />
@@ -832,21 +1042,12 @@ export default function Environment() {
 
       {/* Lighting */}
       <directionalLight position={SUN_POS} intensity={2.5} castShadow color="#fff5d0" />
-      <ambientLight intensity={0.35} />
+      <ambientLight intensity={0.4} />
 
-      {/* White clouds spread across the sky */}
-      <Clouds material={MeshBasicMaterial}>
-        <Cloud position={[-180, 100, -160]} speed={0.2} opacity={1} bounds={[400, 30, 200]} volume={180} color="#ffffff" />
-        <Cloud position={[160, 115, -220]} speed={0.15} opacity={1} bounds={[350, 25, 180]} volume={160} color="#ffffff" />
-        <Cloud position={[350, 105, 140]} speed={0.25} opacity={1} bounds={[380, 28, 190]} volume={170} color="#ffffff" />
-        <Cloud position={[-140, 120, 200]} speed={0.18} opacity={1} bounds={[420, 30, 200]} volume={190} color="#ffffff" />
-        <Cloud position={[240, 110, -120]} speed={0.22} opacity={1} bounds={[360, 26, 170]} volume={165} color="#ffffff" />
-        <Cloud position={[400, 95, 180]} speed={0.17} opacity={1} bounds={[380, 28, 180]} volume={175} color="#ffffff" />
-        <Cloud position={[-250, 108, -230]} speed={0.2} opacity={1} bounds={[420, 32, 210]} volume={185} color="#ffffff" />
-        <Cloud position={[200, 102, 250]} speed={0.13} opacity={1} bounds={[360, 30, 190]} volume={170} color="#ffffff" />
-        <Cloud position={[-220, 118, 160]} speed={0.22} opacity={1} bounds={[400, 28, 200]} volume={175} color="#ffffff" />
-        <Cloud position={[350, 105, -180]} speed={0.16} opacity={1} bounds={[350, 26, 180]} volume={165} color="#ffffff" />
-      </Clouds>
+      {/* Procedural clouds */}
+      {CLOUD_POSITIONS.map((c, i) => (
+        <Cloud key={i} position={c.pos} scale={c.scale} />
+      ))}
 
       {/* Ground — urban/concrete like Monaco */}
       <mesh receiveShadow rotation-x={-Math.PI / 2} position={[0, -0.5, 0]}>
@@ -868,6 +1069,64 @@ export default function Environment() {
         <planeGeometry args={[400, 300]} />
         <meshStandardMaterial color="#1a6b8a" />
       </mesh>
+
+      {/* Palm trees along the coast */}
+      {PALM_POSITIONS.map((p, i) => (
+        <PalmTree key={`palm-${i}`} position={p} scale={0.9 + (i % 3) * 0.15} />
+      ))}
+
+      {/* Yachts in the harbour */}
+      {YACHT_POSITIONS.map((y, i) => (
+        <Yacht key={`yacht-${i}`} position={y.pos} rotation={y.rot} scale={y.scale} hull={y.hull} />
+      ))}
+
+      {/* Grandstands along start/finish straight */}
+      <Grandstand position={[-5, 0, -10]} rotation={-Math.PI / 2} length={28} />
+      <Grandstand position={[-5, 0, 30]} rotation={-Math.PI / 2} length={28} />
+
+      {/* Colourful sponsor banners along the guardrails near start/finish */}
+      {Array.from({ length: 8 }).map((_, i) => {
+        const colors = [
+          ["#e23030", "#ffffff"],
+          ["#f0c040", "#000000"],
+          ["#3050e0", "#ffffff"],
+          ["#20a050", "#ffffff"],
+          ["#ff7020", "#000000"],
+          ["#e0e0e0", "#e23030"],
+        ];
+        const [c, a] = colors[i % colors.length]!;
+        return (
+          <Banner
+            key={`banner-a-${i}`}
+            position={[-13.5, 1.8, -30 + i * 9]}
+            rotation={Math.PI / 2}
+            width={7}
+            color={c!}
+            accent={a!}
+          />
+        );
+      })}
+      {Array.from({ length: 8 }).map((_, i) => {
+        const colors = [
+          ["#3050e0", "#ffffff"],
+          ["#e23030", "#ffffff"],
+          ["#20a050", "#f0c040"],
+          ["#f0c040", "#e23030"],
+          ["#9040c0", "#ffffff"],
+          ["#ff7020", "#ffffff"],
+        ];
+        const [c, a] = colors[i % colors.length]!;
+        return (
+          <Banner
+            key={`banner-b-${i}`}
+            position={[-31.5, 1.8, -30 + i * 9]}
+            rotation={-Math.PI / 2}
+            width={7}
+            color={c!}
+            accent={a!}
+          />
+        );
+      })}
 
       {/* Monaco city */}
       {CITY.map((b, i) => {

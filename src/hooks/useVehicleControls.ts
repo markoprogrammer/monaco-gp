@@ -9,15 +9,22 @@ export interface VehicleInput {
   reset: boolean;
 }
 
+// Shared input — keyboard + touch UI both mutate this object.
+const sharedInput: VehicleInput = {
+  forward: false,
+  backward: false,
+  left: false,
+  right: false,
+  handbrake: false,
+  reset: false,
+};
+
+export function setVehicleInput<K extends keyof VehicleInput>(key: K, value: VehicleInput[K]) {
+  sharedInput[key] = value;
+}
+
 export function useVehicleControls() {
-  const input = useRef<VehicleInput>({
-    forward: false,
-    backward: false,
-    left: false,
-    right: false,
-    handbrake: false,
-    reset: false,
-  });
+  const input = useRef<VehicleInput>(sharedInput);
 
   useEffect(() => {
     const keyMap: Record<string, keyof VehicleInput> = {
