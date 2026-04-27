@@ -15,6 +15,7 @@ import OrientationGate from "./components/OrientationGate";
 import Bots from "./components/Bots";
 import RaceTracker from "./components/RaceTracker";
 import Radio from "./components/Radio";
+import CarTuningPanel from "./components/CarTuningPanel";
 
 export default function App() {
   const carRef = useRef<RapierRigidBody | null>(null);
@@ -44,6 +45,7 @@ export default function App() {
       <Radio />
       <MobileControls />
       <OrientationGate />
+      <CarTuningPanel />
     </>
   );
 }

@@ -60,6 +60,10 @@ export default function Bot({
   const yawPert = useRef(0);
   const lateralPert = useRef(0);
   const speedPert = useRef(0); // negative = slowed by hit
+  const prevAngle = useRef(0);
+  const prevAngleInit = useRef(false);
+  const speedRef = useRef(0);
+  const steerSignalRef = useRef(0);
 
   const progressEntry = useMemo(() => registerEntry(false), []);
   useEffect(() => () => unregisterEntry(progressEntry), [progressEntry]);
@@ -150,6 +154,21 @@ export default function Bot({
     const angle = Math.atan2(_tan.x, _tan.z) + Math.PI + yawPert.current;
     const ha = angle / 2;
 
+    // Derive a steering signal (-1..+1) from yaw rate, for visual front-wheel turning.
+    if (!prevAngleInit.current) {
+      prevAngle.current = angle;
+      prevAngleInit.current = true;
+    }
+    let dAngle = angle - prevAngle.current;
+    if (dAngle > Math.PI) dAngle -= 2 * Math.PI;
+    else if (dAngle < -Math.PI) dAngle += 2 * Math.PI;
+    prevAngle.current = angle;
+    const yawRate = dt > 0 ? dAngle / dt : 0;
+    // Cars going around tight Monaco corners hit ~1.2 rad/s yaw. Map to [-1,1].
+    // Negate so steering wheel direction matches turn direction (left turn = wheels turn left).
+    steerSignalRef.current = Math.max(-1, Math.min(1, -yawRate / 1.2));
+    speedRef.current = effectiveSpeed;
+
     const px = _v.x + _right.x;
     const py = _v.y + 0.6;
     const pz = _v.z + _right.z;
@@ -200,7 +219,12 @@ export default function Bot({
         friction={0.4}
         restitution={0.2}
       />
-      <CarModel bodyColor={bodyColor} accentColor={accentColor ?? "#0a0a0a"} />
+      <CarModel
+        bodyColor={bodyColor}
+        accentColor={accentColor ?? "#0a0a0a"}
+        speedRef={speedRef}
+        steerSignalRef={steerSignalRef}
+      />
     </RigidBody>
   );
 }

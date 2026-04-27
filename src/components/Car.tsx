@@ -38,6 +38,10 @@ export default function Car({ onReady }: CarProps) {
   // Wall contact tracking — count of active wall contacts
   const wallContactCount = useRef(0);
 
+  // Brake & drift signals for tail-light modulation in CarModel
+  const brakeRef = useRef(0);
+  const driftRef = useRef(0);
+
   // Effects handle — populated each frame, read by CarEffects
   const effectsHandle = useMemo<EffectsHandle>(() => ({
     driftIntensity: { current: 0 },
@@ -184,7 +188,11 @@ export default function Car({ onReady }: CarProps) {
     // Drift intensity: combination of handbrake state and lateral slip
     const driftI = Math.min(1, (handbrakeActive ? 0.5 : 0) + slipRatio * 1.4);
     effectsHandle.driftIntensity.current = driftI;
+    driftRef.current = driftI;
     updateDriftSound(driftI, Math.abs(speed) / VEHICLE.maxForwardSpeed);
+
+    // Brake intensity: pressing S (backward) while moving forward = braking
+    brakeRef.current = controls.backward && speed > 1 ? 1 : (controls.handbrake && Math.abs(speed) > 0.5 ? 0.5 : 0);
 
     // Compute rear-wheel world positions for smoke spawn
     // Local rear-wheel offsets: (±0.82, ground-ish, +1.35) — but car forward = -Z so rear is +Z in local
@@ -302,10 +310,11 @@ export default function Car({ onReady }: CarProps) {
           friction={0.5}
         />
         <CarModel
-          bodyColor="#dc1818"
           accentColor="#0a0a0a"
           inputRef={input}
           speedRef={currentSpeed}
+          brakeRef={brakeRef}
+          driftRef={driftRef}
         />
       </RigidBody>
       {/* Effects in world space — outside the RigidBody transform */}

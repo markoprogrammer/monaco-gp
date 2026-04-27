@@ -12,9 +12,8 @@ export const useDebugStore = create<DebugState>((set) => ({
 
 if (typeof window !== "undefined") {
   window.addEventListener("keydown", (e) => {
-    // Cmd/Ctrl+D toggles orbit camera. Shift+D kept as alt for browsers where Cmd+D is blocked.
-    // Plain D is reserved for right-steering.
-    if (e.code === "KeyD" && (e.metaKey || e.ctrlKey || e.shiftKey)) {
+    // Cmd/Ctrl+D = orbit camera. Plain D = steering. Shift+D = tuning panel (handled in tuning-store).
+    if (e.code === "KeyD" && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
       useDebugStore.getState().toggle();
     }
