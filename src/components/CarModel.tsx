@@ -5,8 +5,6 @@ import { toCreasedNormals } from "three/examples/jsm/utils/BufferGeometryUtils.j
 import { Color, Mesh, MeshStandardMaterial, Group, type Object3D } from "three";
 import { useDebugStore } from "../lib/debug-store";
 
-// Angle (radians) above which adjacent faces stay hard-edged.
-// Lower = more flat-shaded look, higher = more smooth. ~50° is a good middle.
 const CREASE_ANGLE = (50 * Math.PI) / 180;
 
 interface VehicleInputLike {
@@ -24,42 +22,22 @@ interface CarModelProps {
 }
 
 const CAR_URL = "/models/car.glb";
-const TIRE_URL = "/models/tire.glb";
 
 const CAR_SCALE = 4.0;
-const TIRE_SCALE = 0.72;
-const TIRE_RADIUS = 0.36;
-
-// Tweak these four numbers to align tires with the model's axle stubs.
-// Y: car body sits at y=-0.3, so wheel-centre at y=-0.3+TIRE_RADIUS=0.06 puts the tire on the ground.
-// Verified via /tmp/verify3.mjs against car.glb vertex centroids
-// (body translate Y=-0.20, rake 0.05rad, scale 4.0).
-const WHEEL_FX = 0.82;
-const WHEEL_RX = 0.91;
-const WHEEL_FZ = -1.21;
-const WHEEL_RZ = 1.37;
-const WHEEL_FY = 0.083;
-const WHEEL_RY = 0.091;
-
+const BODY_Y_OFFSET = -0.32;
+// Wheel rolling radius in world units after CAR_SCALE.
+// Wheel bbox Y half-extent ≈ 0.075 model units → 0.30 world units.
+const TIRE_RADIUS = 0.30;
 const MAX_VISUAL_STEER = 0.42;
 
-function tintScene(root: Object3D, color: string) {
-  const mat = new MeshStandardMaterial({
-    color: new Color(color),
-    metalness: 0.5,
-    roughness: 0.4,
-    flatShading: false,
-  });
-  root.traverse((obj) => {
-    if (obj instanceof Mesh) {
-      obj.material = mat;
-      obj.castShadow = true;
-      obj.receiveShadow = true;
-      obj.geometry = toCreasedNormals(obj.geometry, CREASE_ANGLE);
-    }
-  });
-  return mat;
-}
+const WHEEL_NAMES = {
+  fl: "front-lef-wheel",
+  fr: "right-front-wheel",
+  rl: "rear-left-wheel",
+  rr: "right-rear-wheel",
+} as const;
+
+type WheelKey = keyof typeof WHEEL_NAMES;
 
 export default function CarModel({
   bodyColor = "#cc0000",
@@ -70,36 +48,61 @@ export default function CarModel({
   speedRef,
 }: CarModelProps) {
   const carGltf = useLoader(GLTFLoader, CAR_URL);
-  const tireGltf = useLoader(GLTFLoader, TIRE_URL);
 
-  const carScene = useMemo(() => {
-    const cloned = carGltf.scene.clone(true);
-    tintScene(cloned, bodyColor);
-    return cloned;
-  }, [carGltf.scene, bodyColor]);
+  const { bodyScene, wheelMeshes, wheelPositions } = useMemo(() => {
+    const scene = carGltf.scene.clone(true);
 
-  // 4 independent tire clones (each needs its own transform).
-  const tireScenes = useMemo(() => {
-    const mat = new MeshStandardMaterial({
+    const meshes: Partial<Record<WheelKey, Object3D>> = {};
+    const positions: Partial<Record<WheelKey, [number, number, number]>> = {};
+
+    (Object.entries(WHEEL_NAMES) as [WheelKey, string][]).forEach(([key, name]) => {
+      const w = scene.getObjectByName(name);
+      if (!w) {
+        console.warn(`[CarModel] wheel node '${name}' not found in GLB`);
+        return;
+      }
+      // Capture model-space position then zero it — the wrapper group will carry it,
+      // so the wheel mesh rotates around its own pivot.
+      positions[key] = [w.position.x, w.position.y, w.position.z];
+      w.position.set(0, 0, 0);
+      w.parent?.remove(w);
+      meshes[key] = w;
+    });
+
+    const bodyMat = new MeshStandardMaterial({
+      color: new Color(bodyColor),
+      metalness: 0.5,
+      roughness: 0.4,
+      flatShading: false,
+    });
+    scene.traverse((obj) => {
+      if (obj instanceof Mesh) {
+        obj.material = bodyMat;
+        obj.castShadow = true;
+        obj.receiveShadow = true;
+        obj.geometry = toCreasedNormals(obj.geometry, CREASE_ANGLE);
+      }
+    });
+
+    const tireMat = new MeshStandardMaterial({
       color: new Color("#0a0a0a"),
       roughness: 0.95,
       metalness: 0.0,
       flatShading: false,
     });
-    return [0, 1, 2, 3].map(() => {
-      const c = tireGltf.scene.clone(true);
-      c.traverse((obj) => {
+    Object.values(meshes).forEach((m) => {
+      m?.traverse((obj) => {
         if (obj instanceof Mesh) {
-          obj.material = mat;
+          obj.material = tireMat;
           obj.castShadow = true;
           obj.geometry = toCreasedNormals(obj.geometry, CREASE_ANGLE);
         }
       });
-      return c;
     });
-  }, [tireGltf.scene]);
 
-  // Steer pivot (front wheels only) and spin pivot (all wheels).
+    return { bodyScene: scene, wheelMeshes: meshes, wheelPositions: positions };
+  }, [carGltf.scene, bodyColor]);
+
   const flSteer = useRef<Group>(null);
   const frSteer = useRef<Group>(null);
   const flSpin = useRef<Group>(null);
@@ -115,20 +118,19 @@ export default function CarModel({
     const inp = inputRef?.current;
     const spd = speedRef?.current ?? 0;
 
-    // Steering — smooth toward target
     let target = 0;
     if (inp) target = (inp.left ? 1 : 0) - (inp.right ? 1 : 0);
     steerSmoothed.current += (target * MAX_VISUAL_STEER - steerSmoothed.current) * Math.min(1, dt * 12);
     if (flSteer.current) flSteer.current.rotation.y = steerSmoothed.current;
     if (frSteer.current) frSteer.current.rotation.y = steerSmoothed.current;
 
-    // Roll — convert linear speed to angular velocity (ω = v / r), preserve sign
+    // Wheel disc lies in model XY plane → axle is local Z → spin = rotation.z
     spinAngle.current -= (spd / TIRE_RADIUS) * dt;
     const a = spinAngle.current;
-    if (flSpin.current) flSpin.current.rotation.x = a;
-    if (frSpin.current) frSpin.current.rotation.x = a;
-    if (rlSpin.current) rlSpin.current.rotation.x = a;
-    if (rrSpin.current) rrSpin.current.rotation.x = a;
+    if (flSpin.current) flSpin.current.rotation.z = a;
+    if (frSpin.current) frSpin.current.rotation.z = a;
+    if (rlSpin.current) rlSpin.current.rotation.z = a;
+    if (rrSpin.current) rrSpin.current.rotation.z = a;
   });
 
   void accentColor;
@@ -139,67 +141,57 @@ export default function CarModel({
 
   return (
     <group>
-      {/* Outer tilt: gentle nose-up rake (~3°) so the rear stays off the ground */}
+      {/* Outer rake (~3°) */}
       <group rotation={[0.05, 0, 0]}>
-        <primitive
-          object={carScene}
-          rotation={[0, Math.PI / 2, 0]}
-          scale={CAR_SCALE}
-          position={[0, -0.20, 0]}
-        />
+        {/* Model forward = +X → game forward = -Z (rotate +π/2 around Y). */}
+        <group rotation={[0, Math.PI / 2, 0]} scale={CAR_SCALE} position={[0, BODY_Y_OFFSET, 0]}>
+          <primitive object={bodyScene} />
+
+          {wheelMeshes.fl && wheelPositions.fl && (
+            <group ref={flSteer} position={wheelPositions.fl}>
+              <group ref={flSpin}>
+                <primitive object={wheelMeshes.fl} />
+              </group>
+            </group>
+          )}
+          {wheelMeshes.fr && wheelPositions.fr && (
+            <group ref={frSteer} position={wheelPositions.fr}>
+              <group ref={frSpin}>
+                <primitive object={wheelMeshes.fr} />
+              </group>
+            </group>
+          )}
+          {wheelMeshes.rl && wheelPositions.rl && (
+            <group position={wheelPositions.rl}>
+              <group ref={rlSpin}>
+                <primitive object={wheelMeshes.rl} />
+              </group>
+            </group>
+          )}
+          {wheelMeshes.rr && wheelPositions.rr && (
+            <group position={wheelPositions.rr}>
+              <group ref={rrSpin}>
+                <primitive object={wheelMeshes.rr} />
+              </group>
+            </group>
+          )}
+        </group>
       </group>
 
-      {/* Front-left — keep current orientation */}
-      <group ref={flSteer} position={[-WHEEL_FX, WHEEL_FY, WHEEL_FZ]}>
-        <group ref={flSpin}>
-          <primitive object={tireScenes[0]!} rotation={[0, Math.PI, 0]} scale={TIRE_SCALE} />
-        </group>
-      </group>
-      {/* Front-right — flipped 180° around Y so the rim faces outward */}
-      <group ref={frSteer} position={[WHEEL_FX, WHEEL_FY, WHEEL_FZ]}>
-        <group ref={frSpin}>
-          <primitive object={tireScenes[1]!} rotation={[0, 0, 0]} scale={TIRE_SCALE} />
-        </group>
-      </group>
-      {/* Rear-left */}
-      <group position={[-WHEEL_RX, WHEEL_RY, WHEEL_RZ]}>
-        <group ref={rlSpin}>
-          <primitive object={tireScenes[2]!} rotation={[0, Math.PI, 0]} scale={TIRE_SCALE} />
-        </group>
-      </group>
-      {/* Rear-right — flipped 180° around Y */}
-      <group position={[WHEEL_RX, WHEEL_RY, WHEEL_RZ]}>
-        <group ref={rrSpin}>
-          <primitive object={tireScenes[3]!} rotation={[0, 0, 0]} scale={TIRE_SCALE} />
-        </group>
-      </group>
-
-      {/* Debug markers — bright spheres at each wheel centre, only when Shift+D is on */}
-      {debug && (
-        <>
-          {/* FL = red */}
-          <mesh position={[-WHEEL_FX, WHEEL_FY + 0.5, WHEEL_FZ]}>
+      {debug && (Object.keys(WHEEL_NAMES) as WheelKey[]).map((k) => {
+        const p = wheelPositions[k];
+        if (!p) return null;
+        const wp: [number, number, number] = [p[0] * CAR_SCALE, p[1] * CAR_SCALE + BODY_Y_OFFSET + 0.5, p[2] * CAR_SCALE];
+        // After parent rot Y=π/2: model (x,y,z) → world (z, y, -x)
+        const worldP: [number, number, number] = [wp[2], wp[1], -wp[0]];
+        const color = k === "fl" ? "#ff2020" : k === "fr" ? "#20ff20" : k === "rl" ? "#2080ff" : "#ffff20";
+        return (
+          <mesh key={k} position={worldP}>
             <sphereGeometry args={[0.1, 12, 8]} />
-            <meshBasicMaterial color="#ff2020" />
+            <meshBasicMaterial color={color} />
           </mesh>
-          {/* FR = green */}
-          <mesh position={[WHEEL_FX, WHEEL_FY + 0.5, WHEEL_FZ]}>
-            <sphereGeometry args={[0.1, 12, 8]} />
-            <meshBasicMaterial color="#20ff20" />
-          </mesh>
-          {/* RL = blue */}
-          <mesh position={[-WHEEL_RX, WHEEL_RY + 0.5, WHEEL_RZ]}>
-            <sphereGeometry args={[0.1, 12, 8]} />
-            <meshBasicMaterial color="#2080ff" />
-          </mesh>
-          {/* RR = yellow */}
-          <mesh position={[WHEEL_RX, WHEEL_RY + 0.5, WHEEL_RZ]}>
-            <sphereGeometry args={[0.1, 12, 8]} />
-            <meshBasicMaterial color="#ffff20" />
-          </mesh>
-        </>
-      )}
+        );
+      })}
     </group>
   );
 }
-
