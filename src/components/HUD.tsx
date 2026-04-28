@@ -88,8 +88,6 @@ export default function HUD() {
   const prevBestS2 = useGameState((s) => s.prevBestS2);
   const prevBestS3 = useGameState((s) => s.prevBestS3);
   const prevBestLap = useGameState((s) => s.prevBestLap);
-  const position = useGameState((s) => s.position);
-  const fieldSize = useGameState((s) => s.fieldSize);
 
   const isTouch = useIsTouch();
   const kmh = Math.round(speed * 3.6);
@@ -123,30 +121,6 @@ export default function HUD() {
       zIndex: 9999, pointerEvents: "none", overflow: "hidden",
       fontFamily: "'Courier New', monospace", color: "#fff",
     }}>
-      {/* TOP CENTER — Position */}
-      {fieldSize > 1 && (
-        <div style={{
-          position: "absolute",
-          top: isTouch ? 8 : 12,
-          left: "50%",
-          transform: "translateX(-50%)",
-        }}>
-          <div style={{
-            ...box,
-            padding: isTouch ? "4px 14px" : "6px 18px",
-            display: "flex",
-            alignItems: "baseline",
-            gap: 6,
-          }}>
-            <span style={{ fontSize: isTouch ? 9 : 11, opacity: 0.5 }}>POS</span>
-            <span style={{ fontSize: isTouch ? 22 : 30, fontWeight: "bold", color: position === 1 ? "#a855f7" : "#fff" }}>
-              {position}
-            </span>
-            <span style={{ fontSize: isTouch ? 11 : 14, opacity: 0.5 }}>/{fieldSize}</span>
-          </div>
-        </div>
-      )}
-
       {/* TOP LEFT — Tacho + Speed */}
       <div style={{ position: "absolute", top: 16, left: 16 }}>
         <div style={{ ...box, padding: 0, width: 110, overflow: "hidden", display: "flex", flexDirection: "column", alignItems: "center" }}>

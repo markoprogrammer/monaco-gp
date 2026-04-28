@@ -1,6 +1,8 @@
 import { useEffect, useState, useCallback } from "react";
 import { supabase } from "../lib/supabase";
 import { useUserStore } from "../lib/user-store";
+import { useMultiplayerStore } from "../lib/multiplayer";
+import { buildOutgoingUrl, ownRef } from "../lib/portal-params";
 
 interface Row {
   username: string;
@@ -20,6 +22,16 @@ export default function Leaderboard() {
   const [rows, setRows] = useState<Row[]>([]);
   const [open, setOpen] = useState(true);
   const username = useUserStore((s) => s.username);
+  const selfColor = useMultiplayerStore((s) => s.selfColor);
+
+  const exitToVibeJam = useCallback(() => {
+    const url = buildOutgoingUrl("https://vibej.am/portal/2026", {
+      username: username ?? undefined,
+      color: selfColor,
+      ref: ownRef(),
+    });
+    window.location.href = url;
+  }, [username, selfColor]);
 
   const load = useCallback(async () => {
     // Pull a generous slice and reduce to best-per-user client-side.
@@ -153,6 +165,29 @@ export default function Leaderboard() {
               })}
             </ol>
           )}
+
+          <button
+            type="button"
+            onClick={exitToVibeJam}
+            style={{
+              width: "100%",
+              marginTop: 12,
+              padding: "9px 10px",
+              fontSize: 11,
+              fontWeight: 700,
+              letterSpacing: "0.18em",
+              textTransform: "uppercase",
+              color: "#0a0a0a",
+              background: "linear-gradient(90deg, #22d3ee, #06b6d4)",
+              border: "none",
+              borderRadius: 8,
+              cursor: "pointer",
+              boxShadow: "0 0 18px rgba(34,211,238,0.35)",
+            }}
+            title="Hop to another Vibe Jam 2026 game"
+          >
+            ↪ Vibe Jam Portal
+          </button>
         </div>
       )}
     </div>

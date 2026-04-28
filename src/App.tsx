@@ -19,8 +19,21 @@ import CarTuningPanel from "./components/CarTuningPanel";
 import UsernameGate from "./components/UsernameGate";
 import LapSaver from "./components/LapSaver";
 import Leaderboard from "./components/Leaderboard";
+// import VibePortals from "./components/VibePortals"; // disabled — leaderboard button is enough; can re-enable later
 import { initMultiplayer } from "./lib/multiplayer";
 import { useUserStore } from "./lib/user-store";
+import { readIncomingPortalParams } from "./lib/portal-params";
+
+const incomingPortal = readIncomingPortalParams();
+if (incomingPortal.isFromPortal) {
+  // Spec: instant load when arriving via portal — bypass the username gate
+  // by seeding the user store from URL (or generating a name).
+  const u = useUserStore.getState();
+  if (!u.username) {
+    const incomingName = (incomingPortal.username ?? "").trim().slice(0, 24);
+    u.setUsername(incomingName.length >= 2 ? incomingName : `Vibe${Math.floor(Math.random() * 9000) + 1000}`);
+  }
+}
 
 export default function App() {
   return (
@@ -57,6 +70,7 @@ function Game() {
           <Track />
           <LapSensors />
           <RaceTracker />
+          {/* <VibePortals carRef={carRef} /> */}
         </Physics>
       </Canvas>
       <HUD />
