@@ -4,6 +4,18 @@ import { useUserStore } from "../lib/user-store";
 import { useMultiplayerStore } from "../lib/multiplayer";
 import { buildOutgoingUrl, ownRef } from "../lib/portal-params";
 
+function useIsTouch() {
+  const [isTouch, setIsTouch] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(pointer: coarse)");
+    const update = () => setIsTouch(mq.matches || "ontouchstart" in window);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
+  return isTouch;
+}
+
 interface Row {
   username: string;
   lap_time_ms: number;
@@ -19,8 +31,9 @@ function formatLap(ms: number): string {
 }
 
 export default function Leaderboard() {
+  const isTouch = useIsTouch();
   const [rows, setRows] = useState<Row[]>([]);
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(!isTouch);
   const username = useUserStore((s) => s.username);
   const selfColor = useMultiplayerStore((s) => s.selfColor);
 
@@ -75,9 +88,21 @@ export default function Leaderboard() {
     };
   }, [load]);
 
-  return (
-    <div
-      style={{
+  const wrapperStyle: React.CSSProperties = isTouch
+    ? {
+        position: "fixed",
+        top: 8,
+        left: "50%",
+        transform: "translateX(-50%)",
+        zIndex: 50,
+        fontFamily: "system-ui, -apple-system, sans-serif",
+        color: "#fff",
+        userSelect: "none",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+      }
+    : {
         position: "fixed",
         top: "50%",
         right: 16,
@@ -86,15 +111,17 @@ export default function Leaderboard() {
         fontFamily: "system-ui, -apple-system, sans-serif",
         color: "#fff",
         userSelect: "none",
-      }}
-    >
+      };
+
+  return (
+    <div style={wrapperStyle}>
       <button
         onClick={() => setOpen((o) => !o)}
         style={{
           display: "block",
-          marginLeft: "auto",
-          padding: "6px 12px",
-          fontSize: 11,
+          marginLeft: isTouch ? 0 : "auto",
+          padding: isTouch ? "5px 10px" : "6px 12px",
+          fontSize: isTouch ? 10 : 11,
           fontWeight: 700,
           letterSpacing: "0.15em",
           textTransform: "uppercase",
@@ -103,7 +130,7 @@ export default function Leaderboard() {
           border: "none",
           borderRadius: 6,
           cursor: "pointer",
-          marginBottom: 8,
+          marginBottom: 6,
         }}
       >
         {open ? "Hide" : "Leaderboard"}
@@ -112,7 +139,7 @@ export default function Leaderboard() {
       {open && (
         <div
           style={{
-            width: 260,
+            width: isTouch ? "min(280px, 92vw)" : 260,
             background: "rgba(10,14,28,0.85)",
             backdropFilter: "blur(12px)",
             border: "1px solid rgba(255,255,255,0.08)",
