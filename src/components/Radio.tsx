@@ -30,7 +30,10 @@ export default function Radio() {
   const [playing, setPlaying] = useState(true);
   const [unlocked, setUnlocked] = useState(false);
   const [volume, setVolume] = useState(0.45);
-  const [hidden, setHidden] = useState(true);
+  const [hidden, setHidden] = useState(() => {
+    if (typeof window === "undefined") return true;
+    return window.matchMedia("(pointer: coarse)").matches;
+  });
 
   const current = order[idx]!;
 

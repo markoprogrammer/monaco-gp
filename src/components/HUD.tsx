@@ -193,9 +193,21 @@ export default function HUD() {
         )}
       </div>
 
-      {/* BOTTOM RIGHT — Controls hint (desktop only) */}
-      <div className="desktop-only" style={{ position: "absolute", bottom: 12, right: 12, fontSize: 10, opacity: 0.35 }}>
-        WASD drive · SPACE drift · R respawn
+      {/* BOTTOM CENTER — Controls hint (desktop only) */}
+      <div
+        className="desktop-only"
+        style={{
+          position: "absolute",
+          bottom: 10,
+          left: "50%",
+          transform: "translateX(-50%)",
+          fontSize: 10,
+          opacity: 0.4,
+          whiteSpace: "nowrap",
+          letterSpacing: "0.04em",
+        }}
+      >
+        WASD drive · SPACE drift · R respawn · Shift+D customize · ⌘+D orbit cam
       </div>
     </div>
   );

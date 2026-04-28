@@ -1,6 +1,29 @@
 import { useState, type FormEvent } from "react";
 import { useUserStore, sanitizeUsername, isValidUsername } from "../lib/user-store";
 
+function Kbd({ children }: { children: React.ReactNode }) {
+  return (
+    <span
+      style={{
+        display: "inline-block",
+        padding: "2px 8px",
+        background: "rgba(255,255,255,0.08)",
+        border: "1px solid rgba(255,255,255,0.15)",
+        borderRadius: 5,
+        fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+        fontSize: 11,
+        fontWeight: 600,
+        color: "#fff",
+        whiteSpace: "nowrap",
+        textAlign: "center",
+        minWidth: 28,
+      }}
+    >
+      {children}
+    </span>
+  );
+}
+
 export default function UsernameGate({ children }: { children: React.ReactNode }) {
   const username = useUserStore((s) => s.username);
   const setUsername = useUserStore((s) => s.setUsername);
@@ -71,9 +94,31 @@ export default function UsernameGate({ children }: { children: React.ReactNode }
         <h1 style={{ fontSize: 28, fontWeight: 700, margin: 0, marginBottom: 6 }}>
           Enter your name
         </h1>
-        <p style={{ fontSize: 14, color: "#9aa4b8", margin: 0, marginBottom: 22 }}>
-          Your lap times will appear on the leaderboard.
+        <p style={{ fontSize: 14, color: "#9aa4b8", margin: 0, marginBottom: 16 }}>
+          Type a name, drive Monaco, race the live leaderboard.
         </p>
+
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "auto 1fr",
+            gap: "6px 12px",
+            padding: "12px 14px",
+            marginBottom: 18,
+            background: "rgba(255,255,255,0.04)",
+            border: "1px solid rgba(255,255,255,0.08)",
+            borderRadius: 10,
+            fontSize: 12,
+            color: "#cbd3e1",
+            fontVariantNumeric: "tabular-nums",
+          }}
+        >
+          <Kbd>WASD</Kbd> <span>Drive · steer</span>
+          <Kbd>Space</Kbd> <span>Handbrake / drift</span>
+          <Kbd>R</Kbd> <span>Respawn on track</span>
+          <Kbd>Shift + D</Kbd> <span>Customize car</span>
+          <Kbd>⌘ + D</Kbd> <span>Orbit camera</span>
+        </div>
 
         <input
           autoFocus

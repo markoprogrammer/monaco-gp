@@ -16,6 +16,7 @@ import RemotePlayers from "./components/RemotePlayers";
 import RaceTracker from "./components/RaceTracker";
 import Radio from "./components/Radio";
 import CarTuningPanel from "./components/CarTuningPanel";
+import SettingsButton from "./components/SettingsButton";
 import UsernameGate from "./components/UsernameGate";
 import LapSaver from "./components/LapSaver";
 import Leaderboard from "./components/Leaderboard";
@@ -79,6 +80,7 @@ function Game() {
       <MobileControls />
       <OrientationGate />
       <CarTuningPanel />
+      <SettingsButton />
       <Leaderboard />
       <LapSaver />
     </>
