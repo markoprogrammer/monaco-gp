@@ -22,6 +22,7 @@
   "dependencies": {
     "@react-three/fiber": "^9.5.0",
     "@react-three/rapier": "^2.2.0",
+    "@supabase/supabase-js": "^2.105.1",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
     "three": "0.170.0",

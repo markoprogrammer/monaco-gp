@@ -11,6 +11,7 @@ import { useGameState } from "../hooks/useGameState";
 import { VEHICLE } from "../lib/physics-config";
 import { TRACK_POINTS } from "../lib/track-data";
 import { registerEntry, unregisterEntry } from "../lib/race-progress";
+import { broadcastCarState } from "../lib/multiplayer";
 import CarModel from "./CarModel";
 import CarEffects, { type EffectsHandle } from "./CarEffects";
 
@@ -250,6 +251,12 @@ export default function Car({ onReady }: CarProps) {
         z: (desiredVelZ + _right.z * keptLateral) * blend + currentLinvel.z * (1 - blend),
       },
       true
+    );
+
+    broadcastCarState(
+      pos.x, pos.y, pos.z,
+      rotation.x, rotation.y, rotation.z, rotation.w,
+      Math.abs(speed),
     );
   });
 

@@ -1,4 +1,4 @@
-import { useRef, useCallback, Suspense } from "react";
+import { useRef, useCallback, useEffect, Suspense } from "react";
 import { Canvas } from "@react-three/fiber";
 import { Physics } from "@react-three/rapier";
 import type { RapierRigidBody } from "@react-three/rapier";
@@ -12,17 +12,36 @@ import LapSensors from "./components/LapSensors";
 import HUD from "./components/HUD";
 import MobileControls from "./components/MobileControls";
 import OrientationGate from "./components/OrientationGate";
-import Bots from "./components/Bots";
+import RemotePlayers from "./components/RemotePlayers";
 import RaceTracker from "./components/RaceTracker";
 import Radio from "./components/Radio";
 import CarTuningPanel from "./components/CarTuningPanel";
+import UsernameGate from "./components/UsernameGate";
+import LapSaver from "./components/LapSaver";
+import Leaderboard from "./components/Leaderboard";
+import { initMultiplayer } from "./lib/multiplayer";
+import { useUserStore } from "./lib/user-store";
 
 export default function App() {
+  return (
+    <UsernameGate>
+      <Game />
+    </UsernameGate>
+  );
+}
+
+function Game() {
   const carRef = useRef<RapierRigidBody | null>(null);
+  const username = useUserStore((s) => s.username);
 
   const onCarReady = useCallback((rb: RapierRigidBody) => {
     carRef.current = rb;
   }, []);
+
+  useEffect(() => {
+    if (!username) return;
+    return initMultiplayer(username);
+  }, [username]);
 
   return (
     <>
@@ -31,7 +50,7 @@ export default function App() {
         <Physics gravity={[0, -9.81, 0]}>
           <Suspense fallback={null}>
             <Car onReady={onCarReady} />
-            <Bots />
+            <RemotePlayers />
           </Suspense>
           <ChaseCamera target={carRef} />
           <DebugCamera target={carRef} />
@@ -46,6 +65,8 @@ export default function App() {
       <MobileControls />
       <OrientationGate />
       <CarTuningPanel />
+      <Leaderboard />
+      <LapSaver />
     </>
   );
 }
