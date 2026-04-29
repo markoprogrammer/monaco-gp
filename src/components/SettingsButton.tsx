@@ -14,7 +14,7 @@ export default function SettingsButton() {
       style={{
         position: "fixed",
         bottom: 12,
-        left: 252,
+        left: 280,
         zIndex: 10000,
         background: open ? "rgba(255,236,0,0.9)" : "rgba(0,0,0,0.7)",
         color: open ? "#0a0a0a" : "#fff",

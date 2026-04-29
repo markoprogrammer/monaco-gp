@@ -164,7 +164,19 @@ export default function Leaderboard() {
               No times yet. Set the first one.
             </div>
           ) : (
-            <ol style={{ listStyle: "none", padding: 0, margin: 0 }}>
+            <ol
+              className="leaderboard-list"
+              style={{
+                listStyle: "none",
+                padding: 0,
+                margin: 0,
+                maxHeight: 5 * 24,
+                overflowY: "auto",
+                paddingRight: 4,
+                scrollbarWidth: "thin",
+                scrollbarColor: "rgba(255,255,255,0.2) transparent",
+              }}
+            >
               {rows.map((r, i) => {
                 const me = r.username === username;
                 return (

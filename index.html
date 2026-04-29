@@ -20,6 +20,15 @@
       @media (pointer: coarse) {
         .desktop-only { display: none !important; }
       }
+      .leaderboard-list::-webkit-scrollbar { width: 6px; }
+      .leaderboard-list::-webkit-scrollbar-track { background: transparent; }
+      .leaderboard-list::-webkit-scrollbar-thumb {
+        background: rgba(255,255,255,0.18);
+        border-radius: 3px;
+      }
+      .leaderboard-list::-webkit-scrollbar-thumb:hover {
+        background: rgba(255,255,255,0.32);
+      }
     </style>
   </head>
   <body>

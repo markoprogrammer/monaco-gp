@@ -74,6 +74,16 @@ export const remoteCars = new Map<string, RemoteCarState>();
 
 let channel: RealtimeChannel | null = null;
 let lastBroadcastAt = 0;
+/** True only when at least one OTHER player is present — gates outbound broadcasts. */
+let hasOthers = false;
+/** Last position/rotation/speed actually sent — used to skip frames when idle. */
+let lastSent: { px: number; py: number; pz: number; qx: number; qy: number; qz: number; qw: number; speed: number } | null = null;
+/** Force the next broadcast through even if nothing changed (e.g. new joiner). */
+let forceNextBroadcast = false;
+const POS_EPS_SQ = 0.05 * 0.05;       // 5cm
+const SPEED_EPS = 0.5;                 // 0.5 m/s
+const QUAT_DOT_THRESHOLD = 0.9999;     // ≈ <0.8° rotation change
+const HEARTBEAT_MS = 2000;             // send at least one packet every 2s
 
 export function initMultiplayer(nick: string): () => void {
   if (channel) return () => {};
@@ -110,6 +120,12 @@ export function initMultiplayer(nick: string): () => void {
     }
     useMultiplayerStore.setState({ players: next });
 
+    // Skip per-frame broadcasts when nobody else is listening.
+    const wasAlone = !hasOthers;
+    hasOthers = Object.keys(next).some((id) => id !== selfId);
+    // Someone just joined → push a fresh state immediately so they see us.
+    if (wasAlone && hasOthers) forceNextBroadcast = true;
+
     // prune stale remote car entries
     for (const id of remoteCars.keys()) {
       if (!next[id]) remoteCars.delete(id);
@@ -135,6 +151,9 @@ export function initMultiplayer(nick: string): () => void {
       channel = null;
     }
     remoteCars.clear();
+    hasOthers = false;
+    lastSent = null;
+    forceNextBroadcast = false;
     useMultiplayerStore.setState({ players: {}, connected: false });
   };
 }
@@ -145,9 +164,29 @@ export function broadcastCarState(
   speed: number,
 ): void {
   if (!channel) return;
+  // Optimisation: don't broadcast position when alone. Lap times still go to
+  // the DB via LapSaver, and presence/join events still flow on this channel.
+  if (!hasOthers) return;
   const now = performance.now();
   if (now - lastBroadcastAt < BROADCAST_INTERVAL_MS) return;
+
+  // Idle suppression: skip when nothing meaningful changed. Send a heartbeat
+  // every HEARTBEAT_MS so receivers don't drift on the last interpolated state.
+  if (!forceNextBroadcast && lastSent) {
+    const dx = px - lastSent.px;
+    const dy = py - lastSent.py;
+    const dz = pz - lastSent.pz;
+    const distSq = dx * dx + dy * dy + dz * dz;
+    const dotQ = qx * lastSent.qx + qy * lastSent.qy + qz * lastSent.qz + qw * lastSent.qw;
+    const dSpeed = Math.abs(speed - lastSent.speed);
+    const stale = now - lastBroadcastAt;
+    const moved = distSq >= POS_EPS_SQ || Math.abs(dotQ) < QUAT_DOT_THRESHOLD || dSpeed >= SPEED_EPS;
+    if (!moved && stale < HEARTBEAT_MS) return;
+  }
+
   lastBroadcastAt = now;
+  forceNextBroadcast = false;
+  lastSent = { px, py, pz, qx, qy, qz, qw, speed };
   void channel.send({
     type: "broadcast",
     event: "car",
