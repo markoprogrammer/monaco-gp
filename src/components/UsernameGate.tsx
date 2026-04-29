@@ -57,7 +57,7 @@ export default function UsernameGate({ children }: { children: React.ReactNode }
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        backgroundImage: "url(/images/start-grid.png)",
+        backgroundImage: "url(/images/monaco-skyline.png)",
         backgroundSize: "cover",
         backgroundPosition: "center",
         backgroundColor: "#050810",
