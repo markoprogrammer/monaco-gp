@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { isGameMuted } from "../lib/audio-store";
 
 // Synthetic V12 engine sound using Web Audio API
 // Multiple oscillators at harmonic frequencies create a rich engine tone
@@ -91,9 +92,9 @@ export function useEngineSound() {
       osc.frequency.value = baseFreq * ratios[i]!;
     }
 
-    // Volume increases slightly with speed
+    // Volume increases slightly with speed; silenced when game audio is muted.
     if (gainRef.current) {
-      gainRef.current.gain.value = 0.04 + speedRatio * 0.08;
+      gainRef.current.gain.value = isGameMuted() ? 0 : 0.04 + speedRatio * 0.08;
     }
   };
 

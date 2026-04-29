@@ -2,14 +2,17 @@ import { useEffect, useState, useCallback } from "react";
 import { supabase } from "../lib/supabase";
 import { useUserStore } from "../lib/user-store";
 import { useMultiplayerStore } from "../lib/multiplayer";
+import { useGameState } from "../hooks/useGameState";
 import { buildOutgoingUrl, ownRef } from "../lib/portal-params";
 
 function useIsTouch() {
-  const [isTouch, setIsTouch] = useState(false);
+  const [isTouch, setIsTouch] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return window.matchMedia("(pointer: coarse)").matches || "ontouchstart" in window;
+  });
   useEffect(() => {
     const mq = window.matchMedia("(pointer: coarse)");
     const update = () => setIsTouch(mq.matches || "ontouchstart" in window);
-    update();
     mq.addEventListener("change", update);
     return () => mq.removeEventListener("change", update);
   }, []);
@@ -36,6 +39,12 @@ export default function Leaderboard() {
   const [open, setOpen] = useState(!isTouch);
   const username = useUserStore((s) => s.username);
   const selfColor = useMultiplayerStore((s) => s.selfColor);
+  const speed = useGameState((s) => s.speed);
+
+  // Auto-close on mobile the moment the player starts driving.
+  useEffect(() => {
+    if (isTouch && open && speed > 1) setOpen(false);
+  }, [isTouch, open, speed]);
 
   const exitToVibeJam = useCallback(() => {
     const url = buildOutgoingUrl("https://vibej.am/portal/2026", {
@@ -117,8 +126,11 @@ export default function Leaderboard() {
     <div style={wrapperStyle}>
       <button
         onClick={() => setOpen((o) => !o)}
+        aria-label={open ? "Hide leaderboard" : "Show leaderboard"}
         style={{
-          display: "block",
+          display: "flex",
+          alignItems: "center",
+          gap: 6,
           marginLeft: isTouch ? 0 : "auto",
           padding: isTouch ? "5px 10px" : "6px 12px",
           fontSize: isTouch ? 10 : 11,
@@ -133,7 +145,10 @@ export default function Leaderboard() {
           marginBottom: 6,
         }}
       >
-        {open ? "Hide" : "Leaderboard"}
+        <span>{open ? "Hide" : "Leaderboard"}</span>
+        <span style={{ fontSize: isTouch ? 12 : 13, lineHeight: 1 }} aria-hidden="true">
+          {open ? "✕" : "▾"}
+        </span>
       </button>
 
       {open && (

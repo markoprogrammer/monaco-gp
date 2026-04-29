@@ -1,5 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
+function useIsTouch() {
+  const [isTouch, setIsTouch] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return window.matchMedia("(pointer: coarse)").matches || "ontouchstart" in window;
+  });
+  useEffect(() => {
+    const mq = window.matchMedia("(pointer: coarse)");
+    const update = () => setIsTouch(mq.matches || "ontouchstart" in window);
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
+  return isTouch;
+}
+
 // Files placed in public/radio/ — served at /radio/<encoded-name>.
 const TRACK_FILES = [
   "Pulse at Midnight.mp3",
@@ -30,6 +44,7 @@ export default function Radio() {
   const [playing, setPlaying] = useState(true);
   const [unlocked, setUnlocked] = useState(false);
   const [volume, setVolume] = useState(0.45);
+  const isTouch = useIsTouch();
   const [hidden, setHidden] = useState(() => {
     if (typeof window === "undefined") return true;
     return window.matchMedia("(pointer: coarse)").matches;
@@ -125,24 +140,35 @@ export default function Radio() {
     return () => window.removeEventListener("keydown", onKey);
   }, [toggle, next, prev]);
 
+  const collapsedPos: React.CSSProperties = isTouch
+    ? { top: 16, left: 184 }
+    : { bottom: 12, left: 12 };
+  const openPos: React.CSSProperties = isTouch
+    ? { top: 16, left: 184 }
+    : { bottom: 12, left: 12 };
+
   if (hidden) {
     return (
       <button
         onClick={() => setHidden(false)}
         style={{
           position: "fixed",
-          bottom: 12,
-          left: 12,
+          ...collapsedPos,
           zIndex: 10000,
           background: "rgba(0,0,0,0.7)",
           border: "none",
           color: "#fff",
           fontFamily: "'Courier New', monospace",
-          fontSize: 11,
-          padding: "6px 10px",
+          fontSize: isTouch ? 16 : 11,
+          padding: isTouch ? 0 : "6px 10px",
+          width: isTouch ? 32 : undefined,
+          height: isTouch ? 32 : undefined,
           borderRadius: 6,
           cursor: "pointer",
           pointerEvents: "auto",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
         }}
         aria-label="Show radio"
       >
@@ -169,19 +195,18 @@ export default function Radio() {
 
   return (
     <div
-      className="desktop-only"
       style={{
         position: "fixed",
-        bottom: 12,
-        left: 12,
+        ...openPos,
         zIndex: 10000,
         background: "rgba(0,0,0,0.7)",
         borderRadius: 6,
-        padding: "8px 10px",
+        padding: isTouch ? "6px 8px" : "8px 10px",
         fontFamily: "'Courier New', monospace",
         color: "#fff",
         pointerEvents: "auto",
-        minWidth: 230,
+        minWidth: isTouch ? 180 : 230,
+        maxWidth: isTouch ? 200 : undefined,
         userSelect: "none",
       }}
     >

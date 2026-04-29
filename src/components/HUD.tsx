@@ -203,8 +203,8 @@ export default function HUD() {
               )}
             </div>
 
-            {/* Last + Best laps */}
-            {(lastLapTime !== null || bestLapTime !== null) && (
+            {/* Last + Best laps — desktop only stacks here; mobile has its own block to the left of the timer */}
+            {!isTouch && (lastLapTime !== null || bestLapTime !== null) && (
               <div style={{ ...box, minWidth: minW, padding: lapPad, fontSize: lastBestFs }}>
                 {lastLapTime !== null && (
                   <div style={{ display: "flex", justifyContent: "space-between", padding: "1px 0" }}>
@@ -233,6 +233,34 @@ export default function HUD() {
           </div>
         )}
       </div>
+
+      {/* MOBILE only — Last + Best to the LEFT of the lap timer (otherwise it would fall under the gas pedal) */}
+      {isTouch && currentLap > 0 && (lastLapTime !== null || bestLapTime !== null) && (
+        <div
+          style={{
+            ...box,
+            position: "absolute",
+            top: 12,
+            right: minW + 24,
+            padding: lapPad,
+            fontSize: lastBestFs,
+            minWidth: 100,
+          }}
+        >
+          {lastLapTime !== null && (
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 6, padding: "1px 0" }}>
+              <span style={{ opacity: 0.5 }}>LAST</span>
+              <span>{fmt(lastLapTime)}</span>
+            </div>
+          )}
+          {bestLapTime !== null && (
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 6, padding: "1px 0" }}>
+              <span style={{ opacity: 0.5 }}>BEST</span>
+              <span style={{ color: "#a855f7", fontWeight: "bold" }}>{fmt(bestLapTime)}</span>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* BOTTOM CENTER — Controls hint (desktop only) */}
       <div

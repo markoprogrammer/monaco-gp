@@ -1,18 +1,28 @@
 // Shared AudioContext for bot engine sounds — single context, multiple panners.
 // Created lazily on first user gesture (browser autoplay policy).
+import { useAudioStore } from "./audio-store";
 
+const MASTER_GAIN_ON = 0.55;
 let ctx: AudioContext | null = null;
 let masterGain: GainNode | null = null;
 let listenerInitialized = false;
 
 const readyCallbacks: ((ctx: AudioContext, master: GainNode) => void)[] = [];
 
+function applyMute(muted: boolean) {
+  if (!masterGain) return;
+  masterGain.gain.value = muted ? 0 : MASTER_GAIN_ON;
+}
+
 function ensureStarted() {
   if (ctx) return;
   ctx = new AudioContext();
   masterGain = ctx.createGain();
-  masterGain.gain.value = 0.55;
+  applyMute(useAudioStore.getState().gameMuted);
   masterGain.connect(ctx.destination);
+
+  // React to mute toggles for the lifetime of the page.
+  useAudioStore.subscribe((s) => applyMute(s.gameMuted));
 
   for (const cb of readyCallbacks) cb(ctx, masterGain);
   readyCallbacks.length = 0;
