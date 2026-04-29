@@ -1,6 +1,7 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { useUserStore, sanitizeUsername, isValidUsername } from "../lib/user-store";
 import { readIncomingPortalParams } from "../lib/portal-params";
+import { subscribePresenceCount } from "../lib/multiplayer";
 
 // Each page load (refresh) shows the start screen again, even if a username is
 // remembered. Portal entries (?portal=true) bypass instantly per Vibe Jam spec.
@@ -35,6 +36,13 @@ export default function UsernameGate({ children }: { children: React.ReactNode }
   const [entered, setEntered] = useState(portalBypass);
   const [draft, setDraft] = useState(username ?? "");
   const [touched, setTouched] = useState(false);
+  const [liveCount, setLiveCount] = useState<number | null>(null);
+
+  // Show a live driver counter while the gate is on screen.
+  useEffect(() => {
+    if (entered) return;
+    return subscribePresenceCount(setLiveCount);
+  }, [entered]);
 
   if (entered && username) return <>{children}</>;
 
@@ -101,9 +109,49 @@ export default function UsernameGate({ children }: { children: React.ReactNode }
         <h1 style={{ fontSize: 28, fontWeight: 700, margin: 0, marginBottom: 6 }}>
           Enter your name
         </h1>
-        <p style={{ fontSize: 14, color: "#9aa4b8", margin: 0, marginBottom: 16 }}>
-          Type a name, drive Monaco, race the live leaderboard.
+        <p style={{ fontSize: 14, color: "#9aa4b8", margin: 0, marginBottom: 10, lineHeight: 1.45 }}>
+          <strong style={{ color: "#FFEC00" }}>Time trial</strong> — chase the fastest lap and climb the global leaderboard.
         </p>
+        <p style={{ fontSize: 13, color: "#7b8499", margin: 0, marginBottom: 12, lineHeight: 1.45 }}>
+          <strong style={{ color: "#cbd3e1" }}>Live multiplayer:</strong> every other driver online is on the same track with you, in real time.
+        </p>
+
+        {/* Live driver counter — pulsing badge to make it obvious people are racing right now */}
+        <div
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 8,
+            padding: "6px 12px",
+            marginBottom: 16,
+            background: liveCount && liveCount > 0 ? "rgba(34,197,94,0.12)" : "rgba(255,255,255,0.05)",
+            border: `1px solid ${liveCount && liveCount > 0 ? "rgba(34,197,94,0.35)" : "rgba(255,255,255,0.08)"}`,
+            borderRadius: 999,
+            fontSize: 12,
+            fontWeight: 600,
+            letterSpacing: "0.04em",
+          }}
+        >
+          <span
+            style={{
+              width: 8,
+              height: 8,
+              borderRadius: "50%",
+              background: liveCount && liveCount > 0 ? "#22c55e" : "#6b7589",
+              boxShadow: liveCount && liveCount > 0 ? "0 0 8px #22c55e" : "none",
+              animation: liveCount && liveCount > 0 ? "mgpPulse 1.4s ease-in-out infinite" : "none",
+            }}
+          />
+          <span style={{ color: liveCount && liveCount > 0 ? "#86efac" : "#9aa4b8" }}>
+            {liveCount == null
+              ? "Connecting…"
+              : liveCount === 0
+                ? "Be the first one on track"
+                : liveCount === 1
+                  ? "1 driver on track right now — go race them"
+                  : `${liveCount} drivers on track right now — go race them`}
+          </span>
+        </div>
 
         <div
           style={{

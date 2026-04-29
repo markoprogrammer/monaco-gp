@@ -158,6 +158,32 @@ export function initMultiplayer(nick: string): () => void {
   };
 }
 
+/**
+ * Listen-only presence subscription for the start screen — counts how many
+ * drivers are currently in the lobby without registering ourselves. The caller
+ * receives the count on every sync; returns a cleanup function.
+ */
+export function subscribePresenceCount(onChange: (count: number) => void): () => void {
+  const ch = supabase.channel(CHANNEL_NAME, {
+    config: { broadcast: { self: false }, presence: { key: `spectator:${Math.random().toString(36).slice(2, 10)}` } },
+  });
+  ch.on("presence", { event: "sync" }, () => {
+    const state = ch.presenceState<PlayerInfo>();
+    // Count only entries whose key looks like a tracked player (uuid/short id),
+    // never counting other spectators that may also be watching the lobby.
+    const count = Object.values(state).filter((entries) => {
+      const meta = entries?.[0];
+      return !!meta && !!meta.id;
+    }).length;
+    onChange(count);
+  });
+  ch.subscribe();
+  // Note: we never call ch.track(), so we don't appear in others' presence state.
+  return () => {
+    void supabase.removeChannel(ch);
+  };
+}
+
 export function broadcastCarState(
   px: number, py: number, pz: number,
   qx: number, qy: number, qz: number, qw: number,
