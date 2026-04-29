@@ -63,20 +63,25 @@ export default function UsernameGate({ children }: { children: React.ReactNode }
         inset: 0,
         zIndex: 1000,
         display: "flex",
-        alignItems: "center",
+        alignItems: "flex-start",
         justifyContent: "center",
+        overflowY: "auto",
+        WebkitOverflowScrolling: "touch",
+        padding: "max(env(safe-area-inset-top), 12px) 12px max(env(safe-area-inset-bottom), 12px)",
         backgroundImage: "url(/images/monaco-overview.png)",
         backgroundSize: "cover",
         backgroundPosition: "center",
         backgroundColor: "#050810",
         color: "#fff",
         fontFamily: "system-ui, -apple-system, sans-serif",
+        boxSizing: "border-box",
       }}
     >
       <div
         style={{
-          position: "absolute",
+          position: "fixed",
           inset: 0,
+          pointerEvents: "none",
           background:
             "linear-gradient(180deg, rgba(5,8,16,0.55) 0%, rgba(5,8,16,0.25) 40%, rgba(5,8,16,0.85) 100%)",
         }}
@@ -85,14 +90,16 @@ export default function UsernameGate({ children }: { children: React.ReactNode }
         onSubmit={onSubmit}
         style={{
           position: "relative",
-          width: "min(420px, 90vw)",
-          padding: "32px 28px",
-          background: "rgba(10, 14, 28, 0.78)",
+          width: "min(420px, 100%)",
+          padding: "24px 22px",
+          margin: "auto 0",
+          background: "rgba(10, 14, 28, 0.82)",
           border: "1px solid rgba(255,255,255,0.1)",
           borderRadius: 16,
           boxShadow: "0 24px 80px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,236,0,0.06) inset",
           backdropFilter: "blur(20px)",
           WebkitBackdropFilter: "blur(20px)",
+          boxSizing: "border-box",
         }}
       >
         <div
@@ -106,7 +113,7 @@ export default function UsernameGate({ children }: { children: React.ReactNode }
         >
           Monaco GP
         </div>
-        <h1 style={{ fontSize: 28, fontWeight: 700, margin: 0, marginBottom: 6 }}>
+        <h1 style={{ fontSize: "clamp(22px, 6vw, 28px)", fontWeight: 700, margin: 0, marginBottom: 6 }}>
           Enter your name
         </h1>
         <p style={{ fontSize: 14, color: "#9aa4b8", margin: 0, marginBottom: 10, lineHeight: 1.45 }}>

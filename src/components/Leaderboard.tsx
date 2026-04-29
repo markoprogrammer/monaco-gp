@@ -37,14 +37,25 @@ export default function Leaderboard() {
   const isTouch = useIsTouch();
   const [rows, setRows] = useState<Row[]>([]);
   const [open, setOpen] = useState(!isTouch);
+  const [autoClosedOnce, setAutoClosedOnce] = useState(false);
   const username = useUserStore((s) => s.username);
   const selfColor = useMultiplayerStore((s) => s.selfColor);
   const speed = useGameState((s) => s.speed);
 
-  // Auto-close on mobile the moment the player starts driving.
+  // Auto-close on mobile the FIRST time the player starts driving — afterwards
+  // the user is in charge (otherwise tapping to re-open while moving fights us).
   useEffect(() => {
-    if (isTouch && open && speed > 1) setOpen(false);
-  }, [isTouch, open, speed]);
+    if (!isTouch || autoClosedOnce) return;
+    if (speed > 1) {
+      setOpen(false);
+      setAutoClosedOnce(true);
+    }
+  }, [isTouch, autoClosedOnce, speed]);
+
+  const handleToggle = () => {
+    setOpen((o) => !o);
+    setAutoClosedOnce(true); // any manual toggle disables further auto-close
+  };
 
   const exitToVibeJam = useCallback(() => {
     const url = buildOutgoingUrl("https://vibej.am/portal/2026", {
@@ -125,7 +136,7 @@ export default function Leaderboard() {
   return (
     <div style={wrapperStyle}>
       <button
-        onClick={() => setOpen((o) => !o)}
+        onClick={handleToggle}
         aria-label={open ? "Hide leaderboard" : "Show leaderboard"}
         style={{
           display: "flex",
@@ -133,10 +144,10 @@ export default function Leaderboard() {
           justifyContent: "center",
           gap: isTouch ? 10 : 6,
           marginLeft: isTouch ? 0 : "auto",
-          padding: isTouch ? "6px 14px" : "6px 12px",
-          minHeight: isTouch ? 32 : undefined,
-          minWidth: isTouch ? 120 : undefined,
-          fontSize: isTouch ? 11 : 11,
+          padding: isTouch ? "8px 16px" : "6px 12px",
+          minHeight: isTouch ? 38 : undefined,
+          minWidth: isTouch ? 130 : undefined,
+          fontSize: isTouch ? 12 : 11,
           fontWeight: 700,
           letterSpacing: "0.15em",
           textTransform: "uppercase",
