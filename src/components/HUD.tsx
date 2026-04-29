@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useGameState } from "../hooks/useGameState";
 import { VEHICLE } from "../lib/physics-config";
+import { useMultiplayerStore } from "../lib/multiplayer";
 
 function useIsTouch() {
   const [isTouch, setIsTouch] = useState(false);
@@ -12,6 +13,45 @@ function useIsTouch() {
     return () => mq.removeEventListener("change", update);
   }, []);
   return isTouch;
+}
+
+function LiveUsers() {
+  const count = useMultiplayerStore((s) => Object.keys(s.players).length);
+  const connected = useMultiplayerStore((s) => s.connected);
+  if (!connected) return null;
+  return (
+    <div
+      style={{
+        marginTop: 6,
+        width: 110,
+        padding: "5px 0",
+        background: "rgba(0,0,0,0.55)",
+        border: "1px solid rgba(255,255,255,0.08)",
+        borderRadius: 6,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 6,
+        fontSize: 10,
+        letterSpacing: "0.18em",
+        color: "#cbd3e1",
+        textTransform: "uppercase",
+      }}
+    >
+      <span
+        style={{
+          width: 7,
+          height: 7,
+          borderRadius: "50%",
+          background: "#22c55e",
+          boxShadow: "0 0 6px #22c55e",
+        }}
+      />
+      <span>
+        <strong style={{ color: "#fff" }}>{count}</strong> live
+      </span>
+    </div>
+  );
 }
 
 function fmt(seconds: number): string {
@@ -130,6 +170,7 @@ export default function HUD() {
           <div style={{ fontSize: 32, fontWeight: "bold", lineHeight: 1, textAlign: "center" }}>{kmh}</div>
           <div style={{ fontSize: 9, opacity: 0.4, marginBottom: 8 }}>KM/H</div>
         </div>
+        <LiveUsers />
       </div>
 
       {/* TOP RIGHT — Timing */}
