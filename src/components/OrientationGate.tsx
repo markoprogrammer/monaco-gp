@@ -61,13 +61,13 @@ export default function OrientationGate() {
         />
         <circle cx="48" cy="74" r="2.5" fill="#fff" />
         <path
-          d="M 12 48 A 36 36 0 0 1 84 48"
+          d="M 84 48 A 36 36 0 0 0 12 48"
           fill="none"
           stroke="#22c55e"
           strokeWidth="2.5"
           strokeDasharray="3 3"
         />
-        <polygon points="84,48 80,42 88,42" fill="#22c55e" />
+        <polygon points="12,48 8,42 16,42" fill="#22c55e" />
       </svg>
 
       <div style={{ fontSize: 22, fontWeight: "bold", letterSpacing: 1 }}>
