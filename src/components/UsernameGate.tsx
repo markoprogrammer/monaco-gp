@@ -172,6 +172,38 @@ export default function UsernameGate({ children }: { children: React.ReactNode }
         >
           Drive
         </button>
+
+        <div
+          style={{
+            marginTop: 16,
+            paddingTop: 12,
+            borderTop: "1px solid rgba(255,255,255,0.06)",
+            fontSize: 11,
+            color: "#7a8497",
+            lineHeight: 1.5,
+            textAlign: "center",
+          }}
+        >
+          Car model: <strong style={{ color: "#cbd3e1" }}>GPT Image 2</strong> ×{" "}
+          <a
+            href="https://www.tripo3d.ai/"
+            target="_blank"
+            rel="noreferrer"
+            style={{ color: "#cbd3e1", textDecoration: "underline" }}
+          >
+            Tripo3D
+          </a>
+          <br />
+          Music:{" "}
+          <a
+            href="https://suno.com/"
+            target="_blank"
+            rel="noreferrer"
+            style={{ color: "#cbd3e1", textDecoration: "underline" }}
+          >
+            Suno
+          </a>
+        </div>
       </form>
     </div>
   );

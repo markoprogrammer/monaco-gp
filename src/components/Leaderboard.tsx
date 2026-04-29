@@ -215,6 +215,27 @@ export default function Leaderboard() {
           >
             ↪ Vibe Jam Portal
           </button>
+
+          <div
+            style={{
+              marginTop: 10,
+              fontSize: 9,
+              lineHeight: 1.5,
+              color: "#6b7589",
+              textAlign: "center",
+              letterSpacing: "0.02em",
+            }}
+          >
+            Car: GPT Image 2 ·{" "}
+            <a href="https://www.tripo3d.ai/" target="_blank" rel="noreferrer" style={{ color: "#8a93a8" }}>
+              Tripo3D
+            </a>
+            <br />
+            Music:{" "}
+            <a href="https://suno.com/" target="_blank" rel="noreferrer" style={{ color: "#8a93a8" }}>
+              Suno
+            </a>
+          </div>
         </div>
       )}
     </div>
