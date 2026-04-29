@@ -95,6 +95,77 @@ function buildWallGeometry(edgePoints: Vector3[], height: number) {
   return geom;
 }
 
+/**
+ * Red/white striped kerbs on the inside of every corner — F1 visual signature.
+ * We sample the curve, measure local curvature, and lay alternating-coloured
+ * quads just inside both edges of the road wherever the track bends.
+ */
+function buildKerbGeometry(curve: CatmullRomCurve3, segments: number, trackWidth: number) {
+  const halfW = trackWidth / 2;
+  const KERB_WIDTH = 0.6;       // lateral thickness of the kerb stripe
+  const KERB_RAISE = 0.05;      // sit just above the road surface
+  const CURVATURE_THRESHOLD = 0.018; // tune: skip on long straights
+
+  const positions: number[] = [];
+  const colors: number[] = [];
+  const indices: number[] = [];
+  const RED: [number, number, number] = [0.85, 0.16, 0.16];
+  const WHITE: [number, number, number] = [0.95, 0.95, 0.95];
+
+  // Pre-sample tangents so we can score curvature as |Δtangent| between adjacent samples.
+  const samples: { p: Vector3; t: Vector3; right: Vector3 }[] = [];
+  for (let i = 0; i <= segments; i++) {
+    const u = i / segments;
+    const p = curve.getPointAt(u);
+    const t = curve.getTangentAt(u);
+    const right = new Vector3(-t.z, 0, t.x).normalize();
+    samples.push({ p, t, right });
+  }
+
+  let stripeIdx = 0;
+  for (let i = 0; i < segments; i++) {
+    const a = samples[i]!;
+    const b = samples[i + 1]!;
+    const curvature = a.t.clone().sub(b.t).length();
+    if (curvature < CURVATURE_THRESHOLD) continue;
+
+    const color = stripeIdx % 2 === 0 ? RED : WHITE;
+    stripeIdx++;
+
+    for (const sign of [-1, 1] as const) {
+      const inner = halfW - KERB_WIDTH;
+      const outer = halfW;
+
+      const v0 = a.p.clone().addScaledVector(a.right, sign * outer);
+      const v1 = a.p.clone().addScaledVector(a.right, sign * inner);
+      const v2 = b.p.clone().addScaledVector(b.right, sign * outer);
+      const v3 = b.p.clone().addScaledVector(b.right, sign * inner);
+
+      const base = positions.length / 3;
+      positions.push(
+        v0.x, v0.y + KERB_RAISE, v0.z,
+        v1.x, v1.y + KERB_RAISE, v1.z,
+        v2.x, v2.y + KERB_RAISE, v2.z,
+        v3.x, v3.y + KERB_RAISE, v3.z,
+      );
+      for (let j = 0; j < 4; j++) colors.push(color[0], color[1], color[2]);
+      // Two windings so kerbs are visible regardless of curve direction
+      if (sign === 1) {
+        indices.push(base, base + 1, base + 2, base + 1, base + 3, base + 2);
+      } else {
+        indices.push(base, base + 2, base + 1, base + 1, base + 2, base + 3);
+      }
+    }
+  }
+
+  const geom = new BufferGeometry();
+  geom.setAttribute("position", new Float32BufferAttribute(positions, 3));
+  geom.setAttribute("color", new Float32BufferAttribute(colors, 3));
+  geom.setIndex(indices);
+  geom.computeVertexNormals();
+  return geom;
+}
+
 function buildCenterLineGeometry(curve: CatmullRomCurve3, segments: number) {
   // Dashed center line — short white segments along the middle
   const dashLength = 0.4; // fraction of segment that is a dash
@@ -129,7 +200,7 @@ function buildCenterLineGeometry(curve: CatmullRomCurve3, segments: number) {
 }
 
 export default function Track() {
-  const { roadGeometry, leftWallGeom, rightWallGeom, centerLineGeom, startPosition, startRotation } = useMemo(() => {
+  const { roadGeometry, leftWallGeom, rightWallGeom, centerLineGeom, kerbGeom, startPosition, startRotation } = useMemo(() => {
     const curve = new CatmullRomCurve3(TRACK_POINTS, true, "catmullrom", 0.5);
     const edges = computeEdges(curve, ROAD_SEGMENTS, TRACK_WIDTH);
     const roadGeom = buildRoadGeometry(edges);
@@ -141,6 +212,7 @@ export default function Track() {
     const rightWall = buildWallGeometry(rightPoints, GUARDRAIL_HEIGHT);
 
     const centerLine = buildCenterLineGeometry(curve, ROAD_SEGMENTS);
+    const kerb = buildKerbGeometry(curve, ROAD_SEGMENTS, TRACK_WIDTH);
 
     const startPos = curve.getPointAt(0.29);
     const startTangent = curve.getTangentAt(0.29);
@@ -151,6 +223,7 @@ export default function Track() {
       leftWallGeom: leftWall,
       rightWallGeom: rightWall,
       centerLineGeom: centerLine,
+      kerbGeom: kerb,
       startPosition: startPos,
       startRotation: startAngle,
     };
@@ -200,6 +273,11 @@ export default function Track() {
       {/* Center line — dashed white */}
       <mesh geometry={centerLineGeom}>
         <meshBasicMaterial color="#ffffff" />
+      </mesh>
+
+      {/* Red/white kerbs at corner apexes */}
+      <mesh geometry={kerbGeom} receiveShadow>
+        <meshStandardMaterial vertexColors roughness={0.6} side={DoubleSide} />
       </mesh>
 
       {/* Start/finish line — after tunnel exit, before Sainte Devote */}

@@ -141,10 +141,12 @@ export default function Radio() {
   }, [toggle, next, prev]);
 
   const collapsedPos: React.CSSProperties = isTouch
-    ? { top: 16, left: 184 }
+    ? { top: 16, left: 188 }
     : { bottom: 12, left: 12 };
+  // On mobile the open panel drops BELOW the icon row so it doesn't fight
+  // with the centred leaderboard button.
   const openPos: React.CSSProperties = isTouch
-    ? { top: 16, left: 184 }
+    ? { top: 56, left: 148 }
     : { bottom: 12, left: 12 };
 
   if (hidden) {

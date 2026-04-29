@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { BufferGeometry, Float32BufferAttribute, CatmullRomCurve3, CanvasTexture, NearestFilter, RepeatWrapping, BackSide, SphereGeometry, Color } from "three";
+import { BufferGeometry, Float32BufferAttribute, CatmullRomCurve3, CanvasTexture, NearestFilter, RepeatWrapping, BackSide, DoubleSide, SphereGeometry, Color } from "three";
 import { TRACK_POINTS, TRACK_WIDTH } from "../lib/track-data";
 
 const SUN_POS: [number, number, number] = [-300, 130, -50];
@@ -890,31 +890,59 @@ function PalmTree({ position, scale = 1 }: { position: [number, number, number];
   );
 }
 
-/** Harbour yacht */
-function Yacht({ position, rotation = 0, scale = 1, hull = "#ffffff" }:
-  { position: [number, number, number]; rotation?: number; scale?: number; hull?: string }) {
+/** Harbour yacht — chunkier hull, waterline stripe, deck details, flag at masthead. */
+function Yacht({ position, rotation = 0, scale = 1, hull = "#ffffff", accent = "#1a2540", flag = "#dc0000" }:
+  { position: [number, number, number]; rotation?: number; scale?: number; hull?: string; accent?: string; flag?: string }) {
   return (
     <group position={position} rotation={[0, rotation, 0]} scale={scale}>
-      <mesh position={[0, 0.3, 0]} castShadow>
-        <boxGeometry args={[2.2, 0.6, 7]} />
+      {/* Main hull */}
+      <mesh position={[0, 0.5, 0]} castShadow>
+        <boxGeometry args={[2.6, 1.0, 7.5]} />
         <meshStandardMaterial color={hull} />
       </mesh>
-      <mesh position={[0, 0.05, 3.3]} castShadow>
-        <boxGeometry args={[2.0, 0.6, 0.8]} />
+      {/* Waterline stripe — thin coloured band along the hull */}
+      <mesh position={[0, 0.12, 0]}>
+        <boxGeometry args={[2.62, 0.18, 7.52]} />
+        <meshStandardMaterial color={accent} />
+      </mesh>
+      {/* Tapered prow (front wedge) */}
+      <mesh position={[0, 0.5, 4.1]} rotation={[0, 0, 0]} castShadow>
+        <boxGeometry args={[1.8, 1.0, 0.9]} />
         <meshStandardMaterial color={hull} />
       </mesh>
-      <mesh position={[0, 0.9, -0.8]} castShadow>
-        <boxGeometry args={[1.7, 0.6, 3.4]} />
-        <meshStandardMaterial color="#f0f0f0" />
+      <mesh position={[0, 0.5, 4.6]}>
+        <boxGeometry args={[1.0, 1.0, 0.4]} />
+        <meshStandardMaterial color={hull} />
       </mesh>
-      <mesh position={[0, 0.95, -0.8]}>
-        <boxGeometry args={[1.72, 0.3, 3.3]} />
-        <meshStandardMaterial color="#1a2540" />
+      {/* Cabin / superstructure */}
+      <mesh position={[0, 1.4, -0.6]} castShadow>
+        <boxGeometry args={[2.0, 0.8, 4.0]} />
+        <meshStandardMaterial color="#f5f5f5" />
       </mesh>
-      {/* small mast */}
-      <mesh position={[0, 2.2, -1.0]}>
-        <cylinderGeometry args={[0.04, 0.04, 2.4, 6]} />
-        <meshStandardMaterial color="#cccccc" />
+      {/* Cabin window band */}
+      <mesh position={[0, 1.45, -0.6]}>
+        <boxGeometry args={[2.02, 0.4, 3.9]} />
+        <meshStandardMaterial color={accent} metalness={0.6} roughness={0.2} />
+      </mesh>
+      {/* Sun deck (upper level) */}
+      <mesh position={[0, 2.05, -1.4]} castShadow>
+        <boxGeometry args={[1.5, 0.5, 2.2]} />
+        <meshStandardMaterial color="#fafafa" />
+      </mesh>
+      {/* Mast */}
+      <mesh position={[0, 3.0, -1.6]}>
+        <cylinderGeometry args={[0.05, 0.05, 2.6, 6]} />
+        <meshStandardMaterial color="#cccccc" metalness={0.5} roughness={0.4} />
+      </mesh>
+      {/* Flag at the top of the mast */}
+      <mesh position={[0.45, 4.0, -1.6]}>
+        <boxGeometry args={[0.7, 0.4, 0.02]} />
+        <meshStandardMaterial color={flag} side={DoubleSide} />
+      </mesh>
+      {/* Stern flagpole */}
+      <mesh position={[0, 1.5, -3.6]}>
+        <cylinderGeometry args={[0.03, 0.03, 1.2, 6]} />
+        <meshStandardMaterial color="#bbbbbb" />
       </mesh>
     </group>
   );
@@ -998,15 +1026,15 @@ const PALM_POSITIONS: [number, number, number][] = [
 ];
 
 // Yacht positions — scattered in sea near harbour
-const YACHT_POSITIONS: { pos: [number, number, number]; rot: number; scale: number; hull: string }[] = [
-  { pos: [-80,  -0.15, -40], rot: 0.3, scale: 1.0, hull: "#ffffff" },
-  { pos: [-95,  -0.15, -10], rot: -0.2, scale: 1.3, hull: "#f5f5f5" },
-  { pos: [-72,  -0.15, 20],  rot: 0.5, scale: 0.9, hull: "#ffffff" },
-  { pos: [-110, -0.15, 40],  rot: -0.4, scale: 1.5, hull: "#ebebeb" },
-  { pos: [-85,  -0.15, 80],  rot: 0.2, scale: 1.1, hull: "#ffffff" },
-  { pos: [-100, -0.15, 120], rot: 0.8, scale: 1.2, hull: "#f8f8f8" },
-  { pos: [-130, -0.15, -60], rot: -0.3, scale: 1.4, hull: "#ffffff" },
-  { pos: [-75,  -0.15, -75], rot: 0.6, scale: 0.85, hull: "#f0f0f0" },
+const YACHT_POSITIONS: { pos: [number, number, number]; rot: number; scale: number; hull: string; accent: string; flag: string }[] = [
+  { pos: [-80,  -0.15, -40], rot: 0.3,  scale: 1.0,  hull: "#ffffff", accent: "#1a2540", flag: "#dc0000" },
+  { pos: [-95,  -0.15, -10], rot: -0.2, scale: 1.3,  hull: "#f5f5f5", accent: "#0a1628", flag: "#ffec00" },
+  { pos: [-72,  -0.15, 20],  rot: 0.5,  scale: 0.9,  hull: "#ffffff", accent: "#243044", flag: "#005aff" },
+  { pos: [-110, -0.15, 40],  rot: -0.4, scale: 1.5,  hull: "#ebebeb", accent: "#101820", flag: "#dc0000" },
+  { pos: [-85,  -0.15, 80],  rot: 0.2,  scale: 1.1,  hull: "#ffffff", accent: "#1a2540", flag: "#22c55e" },
+  { pos: [-100, -0.15, 120], rot: 0.8,  scale: 1.2,  hull: "#f8f8f8", accent: "#0a1628", flag: "#dc0000" },
+  { pos: [-130, -0.15, -60], rot: -0.3, scale: 1.4,  hull: "#ffffff", accent: "#243044", flag: "#ffec00" },
+  { pos: [-75,  -0.15, -75], rot: 0.6,  scale: 0.85, hull: "#f0f0f0", accent: "#1a2540", flag: "#005aff" },
 ];
 
 // Cloud positions — scattered, high up, out of the track's way
@@ -1077,7 +1105,15 @@ export default function Environment() {
 
       {/* Yachts in the harbour */}
       {YACHT_POSITIONS.map((y, i) => (
-        <Yacht key={`yacht-${i}`} position={y.pos} rotation={y.rot} scale={y.scale} hull={y.hull} />
+        <Yacht
+          key={`yacht-${i}`}
+          position={y.pos}
+          rotation={y.rot}
+          scale={y.scale}
+          hull={y.hull}
+          accent={y.accent}
+          flag={y.flag}
+        />
       ))}
 
       {/* Grandstands along start/finish straight */}
