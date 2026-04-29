@@ -1,5 +1,10 @@
 import { useState, type FormEvent } from "react";
 import { useUserStore, sanitizeUsername, isValidUsername } from "../lib/user-store";
+import { readIncomingPortalParams } from "../lib/portal-params";
+
+// Each page load (refresh) shows the start screen again, even if a username is
+// remembered. Portal entries (?portal=true) bypass instantly per Vibe Jam spec.
+const portalBypass = readIncomingPortalParams().isFromPortal;
 
 function Kbd({ children }: { children: React.ReactNode }) {
   return (
@@ -27,10 +32,11 @@ function Kbd({ children }: { children: React.ReactNode }) {
 export default function UsernameGate({ children }: { children: React.ReactNode }) {
   const username = useUserStore((s) => s.username);
   const setUsername = useUserStore((s) => s.setUsername);
-  const [draft, setDraft] = useState("");
+  const [entered, setEntered] = useState(portalBypass);
+  const [draft, setDraft] = useState(username ?? "");
   const [touched, setTouched] = useState(false);
 
-  if (username) return <>{children}</>;
+  if (entered && username) return <>{children}</>;
 
   const valid = isValidUsername(draft);
 
@@ -39,6 +45,7 @@ export default function UsernameGate({ children }: { children: React.ReactNode }
     setTouched(true);
     if (!valid) return;
     setUsername(sanitizeUsername(draft));
+    setEntered(true);
   };
 
   return (

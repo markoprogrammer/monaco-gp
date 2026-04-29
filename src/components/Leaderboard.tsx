@@ -130,23 +130,27 @@ export default function Leaderboard() {
         style={{
           display: "flex",
           alignItems: "center",
-          gap: 6,
+          justifyContent: "center",
+          gap: isTouch ? 10 : 6,
           marginLeft: isTouch ? 0 : "auto",
-          padding: isTouch ? "5px 10px" : "6px 12px",
-          fontSize: isTouch ? 10 : 11,
+          padding: isTouch ? "12px 22px" : "6px 12px",
+          minHeight: isTouch ? 44 : undefined,
+          minWidth: isTouch ? 170 : undefined,
+          fontSize: isTouch ? 13 : 11,
           fontWeight: 700,
           letterSpacing: "0.15em",
           textTransform: "uppercase",
           color: "#0a0a0a",
           background: "#FFEC00",
           border: "none",
-          borderRadius: 6,
+          borderRadius: 8,
           cursor: "pointer",
           marginBottom: 6,
+          boxShadow: isTouch ? "0 2px 10px rgba(0,0,0,0.35)" : undefined,
         }}
       >
         <span>{open ? "Hide" : "Leaderboard"}</span>
-        <span style={{ fontSize: isTouch ? 12 : 13, lineHeight: 1 }} aria-hidden="true">
+        <span style={{ fontSize: isTouch ? 16 : 13, lineHeight: 1 }} aria-hidden="true">
           {open ? "✕" : "▾"}
         </span>
       </button>
