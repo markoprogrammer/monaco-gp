@@ -2,57 +2,23 @@ import { useEffect, useState } from "react";
 import { useGameState } from "../hooks/useGameState";
 import { VEHICLE } from "../lib/physics-config";
 import { useMultiplayerStore } from "../lib/multiplayer";
+import { useUserStatsStore } from "../lib/all-time-stats";
+import { useUserStore } from "../lib/user-store";
 
 function useIsTouch() {
-  const [isTouch, setIsTouch] = useState(false);
+  const [isTouch, setIsTouch] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return window.matchMedia("(pointer: coarse)").matches || "ontouchstart" in window;
+  });
   useEffect(() => {
     const mq = window.matchMedia("(pointer: coarse)");
     const update = () => setIsTouch(mq.matches || "ontouchstart" in window);
-    update();
     mq.addEventListener("change", update);
     return () => mq.removeEventListener("change", update);
   }, []);
   return isTouch;
 }
 
-function LiveUsers() {
-  const count = useMultiplayerStore((s) => Object.keys(s.players).length);
-  const connected = useMultiplayerStore((s) => s.connected);
-  if (!connected) return null;
-  return (
-    <div
-      style={{
-        marginTop: 6,
-        width: 110,
-        padding: "5px 0",
-        background: "rgba(0,0,0,0.55)",
-        border: "1px solid rgba(255,255,255,0.08)",
-        borderRadius: 6,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        gap: 6,
-        fontSize: 10,
-        letterSpacing: "0.18em",
-        color: "#cbd3e1",
-        textTransform: "uppercase",
-      }}
-    >
-      <span
-        style={{
-          width: 7,
-          height: 7,
-          borderRadius: "50%",
-          background: "#22c55e",
-          boxShadow: "0 0 6px #22c55e",
-        }}
-      />
-      <span>
-        <strong style={{ color: "#fff" }}>{count}</strong> live
-      </span>
-    </div>
-  );
-}
 
 function fmt(seconds: number): string {
   const m = Math.floor(seconds / 60);
@@ -128,6 +94,13 @@ export default function HUD() {
   const prevBestS2 = useGameState((s) => s.prevBestS2);
   const prevBestS3 = useGameState((s) => s.prevBestS3);
   const prevBestLap = useGameState((s) => s.prevBestLap);
+  const allTimeBestMs = useUserStatsStore((s) => s.bestLapMs);
+  const myRank = useUserStatsStore((s) => s.rank);
+  const totalDrivers = useUserStatsStore((s) => s.total);
+  const username = useUserStore((s) => s.username);
+  const selfColor = useMultiplayerStore((s) => s.selfColor);
+  const allTimeBestSec = allTimeBestMs != null ? allTimeBestMs / 1000 : null;
+  const displayBest = allTimeBestSec ?? bestLapTime;
 
   const isTouch = useIsTouch();
   const kmh = Math.round(speed * 3.6);
@@ -162,7 +135,7 @@ export default function HUD() {
       fontFamily: "'Courier New', monospace", color: "#fff",
     }}>
       {/* TOP LEFT — Tacho + Speed */}
-      <div style={{ position: "absolute", top: 16, left: 16 }}>
+      <div style={{ position: "absolute", top: 12, left: 12 }}>
         <div style={{ ...box, padding: 0, width: 110, overflow: "hidden", display: "flex", flexDirection: "column", alignItems: "center" }}>
           <div style={{ width: 110, height: 90, padding: "10px 15px 0" }}>
             <Tacho ratio={rpmRatio} />
@@ -170,24 +143,44 @@ export default function HUD() {
           <div style={{ fontSize: 32, fontWeight: "bold", lineHeight: 1, textAlign: "center" }}>{kmh}</div>
           <div style={{ fontSize: 9, opacity: 0.4, marginBottom: 8 }}>KM/H</div>
         </div>
-        <LiveUsers />
       </div>
 
-      {/* TOP RIGHT — Timing */}
-      <div style={{ position: "absolute", top: 12, right: 12, display: "flex", flexDirection: "column", gap: 4, alignItems: "flex-end" }}>
+      {/* TOP RIGHT — Timing (single combined panel) */}
+      <div style={{ position: "absolute", top: 12, right: 12, display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
         {currentLap > 0 ? (
-          <>
-            {/* Lap timer */}
-            <div style={{ ...box, minWidth: minW, padding: lapPad }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
-                <span style={{ fontSize: isTouch ? 9 : 11, opacity: 0.5 }}>LAP {currentLap}</span>
-                <span style={{ fontSize: lapFs, fontWeight: "bold", letterSpacing: -1 }}>{fmt(lapTime)}</span>
-              </div>
+          <div
+            style={{
+              ...box,
+              minWidth: minW,
+              padding: 0,
+              display: "flex",
+              flexDirection: "column",
+            }}
+          >
+            {/* Lap timer header */}
+            <div
+              style={{
+                padding: lapPad,
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "baseline",
+                gap: 8,
+              }}
+            >
+              <span style={{ fontSize: isTouch ? 9 : 11, opacity: 0.5 }}>LAP {currentLap}</span>
+              <span style={{ fontSize: lapFs, fontWeight: "bold", letterSpacing: -1 }}>{fmt(lapTime)}</span>
             </div>
 
             {/* Sectors */}
-            <div style={{ ...box, minWidth: minW, padding: lapPad }}>
-              <div style={{ fontSize: isTouch ? 8 : 9, opacity: 0.4, marginBottom: 2 }}>{showLast ? "LAST LAP" : "SECTORS"}</div>
+            <div
+              style={{
+                padding: lapPad,
+                borderTop: "1px solid rgba(255,255,255,0.08)",
+              }}
+            >
+              <div style={{ fontSize: isTouch ? 8 : 9, opacity: 0.4, marginBottom: 2 }}>
+                {showLast ? "LAST LAP" : "SECTORS"}
+              </div>
               {showLast ? (
                 <>
                   <SectorRow label="S1" time={lastS1} best={prevBestS1} fontSize={sectorFs} padding={sectorPad} />
@@ -203,11 +196,17 @@ export default function HUD() {
               )}
             </div>
 
-            {/* Last + Best laps — desktop only stacks here; mobile has its own block to the left of the timer */}
-            {!isTouch && (lastLapTime !== null || bestLapTime !== null) && (
-              <div style={{ ...box, minWidth: minW, padding: lapPad, fontSize: lastBestFs }}>
+            {/* Last + Best laps — combined into the same panel on all viewports */}
+            {(lastLapTime !== null || displayBest !== null) && (
+              <div
+                style={{
+                  padding: lapPad,
+                  fontSize: lastBestFs,
+                  borderTop: "1px solid rgba(255,255,255,0.08)",
+                }}
+              >
                 {lastLapTime !== null && (
-                  <div style={{ display: "flex", justifyContent: "space-between", padding: "1px 0" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 6, padding: "1px 0" }}>
                     <span style={{ opacity: 0.5 }}>LAST</span>
                     <span>{fmt(lastLapTime)}</span>
                     {prevBestLap !== null && (
@@ -217,50 +216,144 @@ export default function HUD() {
                     )}
                   </div>
                 )}
-                {bestLapTime !== null && (
-                  <div style={{ display: "flex", justifyContent: "space-between", padding: "1px 0" }}>
-                    <span style={{ opacity: 0.5 }}>BEST</span>
-                    <span style={{ color: "#a855f7", fontWeight: "bold" }}>{fmt(bestLapTime)}</span>
+                {displayBest !== null && (
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 6, padding: "1px 0" }}>
+                    <span style={{ opacity: 0.5 }}>YOUR BEST</span>
+                    <span style={{ color: "#a855f7", fontWeight: "bold" }}>{fmt(displayBest)}</span>
                   </div>
                 )}
               </div>
             )}
-          </>
+
+            {/* Player identity + leaderboard position — single row */}
+            {username && (
+              <div
+                style={{
+                  padding: lapPad,
+                  fontSize: lastBestFs,
+                  borderTop: "1px solid rgba(255,255,255,0.08)",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  gap: 8,
+                }}
+              >
+                <span
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 5,
+                    flex: 1,
+                    minWidth: 0,
+                    overflow: "hidden",
+                  }}
+                >
+                  {selfColor && (
+                    <span
+                      aria-hidden="true"
+                      style={{
+                        width: 8,
+                        height: 8,
+                        borderRadius: "50%",
+                        background: selfColor,
+                        boxShadow: `0 0 4px ${selfColor}`,
+                        flexShrink: 0,
+                      }}
+                    />
+                  )}
+                  <span
+                    style={{
+                      color: "#FFEC00",
+                      fontWeight: 700,
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                      minWidth: 0,
+                    }}
+                  >
+                    {username}
+                  </span>
+                </span>
+                <span style={{ fontWeight: "bold", flexShrink: 0 }}>
+                  {myRank != null
+                    ? `P${myRank}${totalDrivers != null ? ` / ${totalDrivers}` : ""}`
+                    : "P–"}
+                </span>
+              </div>
+            )}
+          </div>
         ) : (
-          <div style={{ ...box, fontSize: 14, opacity: 0.9, textAlign: "center" }}>
-            <div style={{ fontWeight: "bold" }}>GO</div>
-            <div style={{ fontSize: 10, opacity: 0.6 }}>DRIVE TO START</div>
+          <div
+            style={{
+              ...box,
+              minWidth: minW,
+              padding: 0,
+              display: "flex",
+              flexDirection: "column",
+            }}
+          >
+            <div style={{ padding: lapPad, textAlign: "center" }}>
+              <div style={{ fontSize: 14, fontWeight: "bold", opacity: 0.9 }}>GO</div>
+              <div style={{ fontSize: 10, opacity: 0.6 }}>DRIVE TO START</div>
+            </div>
+            {username && (
+              <div
+                style={{
+                  padding: lapPad,
+                  fontSize: lastBestFs,
+                  borderTop: "1px solid rgba(255,255,255,0.08)",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  gap: 8,
+                }}
+              >
+                <span
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 5,
+                    flex: 1,
+                    minWidth: 0,
+                    overflow: "hidden",
+                  }}
+                >
+                  {selfColor && (
+                    <span
+                      aria-hidden="true"
+                      style={{
+                        width: 8,
+                        height: 8,
+                        borderRadius: "50%",
+                        background: selfColor,
+                        boxShadow: `0 0 4px ${selfColor}`,
+                        flexShrink: 0,
+                      }}
+                    />
+                  )}
+                  <span
+                    style={{
+                      color: "#FFEC00",
+                      fontWeight: 700,
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                      minWidth: 0,
+                    }}
+                  >
+                    {username}
+                  </span>
+                </span>
+                <span style={{ fontWeight: "bold", flexShrink: 0 }}>
+                  {myRank != null
+                    ? `P${myRank}${totalDrivers != null ? ` / ${totalDrivers}` : ""}`
+                    : "P–"}
+                </span>
+              </div>
+            )}
           </div>
         )}
       </div>
-
-      {/* MOBILE only — Last + Best to the LEFT of the lap timer (otherwise it would fall under the gas pedal) */}
-      {isTouch && currentLap > 0 && (lastLapTime !== null || bestLapTime !== null) && (
-        <div
-          style={{
-            ...box,
-            position: "absolute",
-            top: 12,
-            right: minW + 24,
-            padding: lapPad,
-            fontSize: lastBestFs,
-            minWidth: 100,
-          }}
-        >
-          {lastLapTime !== null && (
-            <div style={{ display: "flex", justifyContent: "space-between", gap: 6, padding: "1px 0" }}>
-              <span style={{ opacity: 0.5 }}>LAST</span>
-              <span>{fmt(lastLapTime)}</span>
-            </div>
-          )}
-          {bestLapTime !== null && (
-            <div style={{ display: "flex", justifyContent: "space-between", gap: 6, padding: "1px 0" }}>
-              <span style={{ opacity: 0.5 }}>BEST</span>
-              <span style={{ color: "#a855f7", fontWeight: "bold" }}>{fmt(bestLapTime)}</span>
-            </div>
-          )}
-        </div>
-      )}
 
       {/* BOTTOM CENTER — Controls hint (desktop only) */}
       <div

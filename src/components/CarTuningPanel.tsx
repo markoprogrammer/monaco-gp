@@ -210,7 +210,7 @@ export default function CarTuningPanel() {
         boxShadow: "0 6px 24px rgba(0,0,0,0.5)",
         display: "flex",
         flexDirection: "column",
-        zIndex: 9999,
+        zIndex: 19500,
         pointerEvents: "auto",
       }}
       onPointerDown={(e) => e.stopPropagation()}

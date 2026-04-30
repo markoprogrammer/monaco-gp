@@ -94,6 +94,8 @@ export const useGameState = create<GameState>((set, get) => ({
     }
 
     if (!state.checkpointPassed) return;
+    // Cooldown: a real lap can't possibly be <5s. Sensor double-fires get ignored.
+    if (state.lapTime < 5) return;
 
     const totalTime = state.lapTime;
     const s1 = state.s1Time ?? totalTime;

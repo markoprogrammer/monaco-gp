@@ -2,10 +2,15 @@ import { useEffect, useState, type FormEvent } from "react";
 import { useUserStore, sanitizeUsername, isValidUsername } from "../lib/user-store";
 import { readIncomingPortalParams } from "../lib/portal-params";
 import { subscribePresenceCount } from "../lib/multiplayer";
+import { supabase } from "../lib/supabase";
+import { fetchAllTimeUserCount } from "../lib/all-time-stats";
 
-// Each page load (refresh) shows the start screen again, even if a username is
-// remembered. Portal entries (?portal=true) bypass instantly per Vibe Jam spec.
-const portalBypass = readIncomingPortalParams().isFromPortal;
+// Each page load (refresh) shows the start screen — even portal entries must
+// confirm the username (prefilled from URL or remembered store).
+const incomingPortalUsername = (() => {
+  const raw = (readIncomingPortalParams().username ?? "").trim().slice(0, 24);
+  return raw.length >= 2 ? raw : "";
+})();
 
 function Kbd({ children }: { children: React.ReactNode }) {
   return (
@@ -33,10 +38,23 @@ function Kbd({ children }: { children: React.ReactNode }) {
 export default function UsernameGate({ children }: { children: React.ReactNode }) {
   const username = useUserStore((s) => s.username);
   const setUsername = useUserStore((s) => s.setUsername);
-  const [entered, setEntered] = useState(portalBypass);
-  const [draft, setDraft] = useState(username ?? "");
+  const [entered, setEntered] = useState(false);
+  const [draft, setDraft] = useState(username ?? incomingPortalUsername);
   const [touched, setTouched] = useState(false);
+  const [checking, setChecking] = useState(false);
+  const [takenError, setTakenError] = useState(false);
   const [liveCount, setLiveCount] = useState<number | null>(null);
+  const [allTimeUsers, setAllTimeUsers] = useState<number | null>(null);
+  const [isTouch, setIsTouch] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return window.matchMedia("(pointer: coarse)").matches || "ontouchstart" in window;
+  });
+  useEffect(() => {
+    const mq = window.matchMedia("(pointer: coarse)");
+    const update = () => setIsTouch(mq.matches || "ontouchstart" in window);
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
 
   // Show a live driver counter while the gate is on screen.
   useEffect(() => {
@@ -44,15 +62,53 @@ export default function UsernameGate({ children }: { children: React.ReactNode }
     return subscribePresenceCount(setLiveCount);
   }, [entered]);
 
+  // All-time unique drivers — single fetch when the gate mounts.
+  useEffect(() => {
+    if (entered) return;
+    let cancelled = false;
+    void fetchAllTimeUserCount().then((n) => {
+      if (!cancelled) setAllTimeUsers(n);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [entered]);
+
   if (entered && username) return <>{children}</>;
 
   const valid = isValidUsername(draft);
 
-  const onSubmit = (e: FormEvent) => {
+  const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setTouched(true);
-    if (!valid) return;
-    setUsername(sanitizeUsername(draft));
+    if (!valid || checking) return;
+    const candidate = sanitizeUsername(draft);
+
+    // Returning user re-entering their own stored handle (case-insensitive): skip check.
+    const storedLower = (username ?? "").toLowerCase();
+    if (candidate.toLowerCase() !== storedLower) {
+      setChecking(true);
+      try {
+        // ilike with escaped wildcards = exact case-insensitive match.
+        const escaped = candidate.replace(/[\\%_]/g, (c) => `\\${c}`);
+        const { data, error } = await supabase
+          .from("lap_times")
+          .select("username")
+          .ilike("username", escaped)
+          .limit(1);
+        if (error) {
+          // Fail-open on transient errors — better to let the player race than block.
+          console.warn("[username uniqueness check]", error.message);
+        } else if ((data ?? []).length > 0) {
+          setTakenError(true);
+          return;
+        }
+      } finally {
+        setChecking(false);
+      }
+    }
+
+    setUsername(candidate);
     setEntered(true);
   };
 
@@ -93,12 +149,12 @@ export default function UsernameGate({ children }: { children: React.ReactNode }
           width: "min(420px, 100%)",
           padding: "24px 22px",
           margin: "auto 0",
-          background: "rgba(10, 14, 28, 0.82)",
+          background: "rgba(10, 14, 28, 0.55)",
           border: "1px solid rgba(255,255,255,0.1)",
           borderRadius: 16,
           boxShadow: "0 24px 80px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,236,0,0.06) inset",
-          backdropFilter: "blur(20px)",
-          WebkitBackdropFilter: "blur(20px)",
+          backdropFilter: "blur(14px)",
+          WebkitBackdropFilter: "blur(14px)",
           boxSizing: "border-box",
         }}
       >
@@ -160,34 +216,54 @@ export default function UsernameGate({ children }: { children: React.ReactNode }
           </span>
         </div>
 
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "auto 1fr",
-            gap: "6px 12px",
-            padding: "12px 14px",
-            marginBottom: 18,
-            background: "rgba(255,255,255,0.04)",
-            border: "1px solid rgba(255,255,255,0.08)",
-            borderRadius: 10,
-            fontSize: 12,
-            color: "#cbd3e1",
-            fontVariantNumeric: "tabular-nums",
-          }}
-        >
-          <Kbd>WASD</Kbd> <span>Drive · steer</span>
-          <Kbd>Space</Kbd> <span>Handbrake / drift</span>
-          <Kbd>R</Kbd> <span>Respawn on track</span>
-          <Kbd>Shift + D</Kbd> <span>Customize car</span>
-          <Kbd>⌘ + D</Kbd> <span>Orbit camera</span>
-        </div>
+        {allTimeUsers != null && (
+          <div
+            style={{
+              fontSize: 11,
+              color: "#7b8499",
+              marginBottom: 16,
+              letterSpacing: "0.06em",
+              textTransform: "uppercase",
+            }}
+          >
+            <strong style={{ color: "#cbd3e1" }}>{allTimeUsers}</strong>{" "}
+            {allTimeUsers === 1 ? "driver has" : "drivers have"} ever raced here
+          </div>
+        )}
+
+        {!isTouch && (
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "auto 1fr",
+              gap: "6px 12px",
+              padding: "12px 14px",
+              marginBottom: 18,
+              background: "rgba(255,255,255,0.04)",
+              border: "1px solid rgba(255,255,255,0.08)",
+              borderRadius: 10,
+              fontSize: 12,
+              color: "#cbd3e1",
+              fontVariantNumeric: "tabular-nums",
+            }}
+          >
+            <Kbd>WASD</Kbd> <span>Drive · steer</span>
+            <Kbd>Space</Kbd> <span>Handbrake / drift</span>
+            <Kbd>R</Kbd> <span>Respawn on track</span>
+            <Kbd>Shift + D</Kbd> <span>Customize car</span>
+            <Kbd>⌘ + D</Kbd> <span>Orbit camera</span>
+          </div>
+        )}
 
         <input
           autoFocus
           value={draft}
-          onChange={(e) => setDraft(e.target.value)}
+          onChange={(e) => {
+            setDraft(e.target.value);
+            if (takenError) setTakenError(false);
+          }}
           onBlur={() => setTouched(true)}
-          maxLength={24}
+          maxLength={20}
           placeholder="e.g. LEC16"
           style={{
             width: "100%",
@@ -195,7 +271,9 @@ export default function UsernameGate({ children }: { children: React.ReactNode }
             fontSize: 18,
             fontWeight: 600,
             background: "rgba(255,255,255,0.05)",
-            border: `1px solid ${touched && !valid ? "#dc0000" : "rgba(255,255,255,0.12)"}`,
+            border: `1px solid ${
+              takenError ? "#dc0000" : touched && !valid ? "#dc0000" : "rgba(255,255,255,0.12)"
+            }`,
             borderRadius: 10,
             color: "#fff",
             outline: "none",
@@ -206,33 +284,38 @@ export default function UsernameGate({ children }: { children: React.ReactNode }
 
         {touched && !valid && (
           <div style={{ fontSize: 12, color: "#ff6b6b", marginTop: 8 }}>
-            2–24 characters
+            2–20 characters
+          </div>
+        )}
+        {takenError && (
+          <div style={{ fontSize: 12, color: "#ff6b6b", marginTop: 8 }}>
+            That name is already racing. Pick another.
           </div>
         )}
 
         <button
           type="submit"
-          disabled={!valid}
+          disabled={!valid || checking}
           style={{
             width: "100%",
             marginTop: 18,
             padding: "14px 16px",
             fontSize: 16,
             fontWeight: 700,
-            color: valid ? "#0a0a0a" : "#7a7a7a",
-            background: valid ? "#FFEC00" : "rgba(255,255,255,0.06)",
+            color: valid && !checking ? "#0a0a0a" : "#7a7a7a",
+            background: valid && !checking ? "#FFEC00" : "rgba(255,255,255,0.06)",
             border: "none",
             borderRadius: 10,
-            cursor: valid ? "pointer" : "not-allowed",
+            cursor: valid && !checking ? "pointer" : "not-allowed",
             letterSpacing: "0.1em",
             textTransform: "uppercase",
             transition: "transform 80ms ease",
           }}
-          onMouseDown={(e) => valid && (e.currentTarget.style.transform = "scale(0.98)")}
+          onMouseDown={(e) => valid && !checking && (e.currentTarget.style.transform = "scale(0.98)")}
           onMouseUp={(e) => (e.currentTarget.style.transform = "scale(1)")}
           onMouseLeave={(e) => (e.currentTarget.style.transform = "scale(1)")}
         >
-          Drive
+          {checking ? "Checking…" : "Drive"}
         </button>
 
         <div

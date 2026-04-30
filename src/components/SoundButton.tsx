@@ -40,7 +40,7 @@ export default function SoundButton() {
   };
 
   const positionStyle: React.CSSProperties = isTouch
-    ? { position: "fixed", top: 16, left: 148 }
+    ? { position: "fixed", top: 12, left: 144 }
     : { position: "fixed", bottom: 12, left: 360 };
 
   return (

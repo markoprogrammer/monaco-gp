@@ -7,6 +7,9 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <title>Monaco GP</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/favicon.svg" />
+    <meta name="theme-color" content="#FFEC00" />
     <style>
       * { margin: 0; padding: 0; box-sizing: border-box; }
       html, body, #root { width: 100%; height: 100%; overflow: hidden; }
@@ -32,6 +35,16 @@
       @keyframes mgpPulse {
         0%, 100% { transform: scale(1); opacity: 1; }
         50% { transform: scale(1.4); opacity: 0.7; }
+      }
+      @keyframes mgpToastIn {
+        0%   { opacity: 0; transform: translate(-50%, -8px) scale(0.96); }
+        100% { opacity: 1; transform: translate(-50%, 0) scale(1); }
+      }
+      @keyframes mgpToastLifecycle {
+        0%   { opacity: 0; transform: translate(-50%, -8px) scale(0.96); }
+        8%   { opacity: 1; transform: translate(-50%, 0) scale(1); }
+        80%  { opacity: 1; transform: translate(-50%, 0) scale(1); }
+        100% { opacity: 0; transform: translate(-50%, 0) scale(1); }
       }
     </style>
   </head>
