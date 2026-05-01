@@ -12,13 +12,36 @@
     <meta name="theme-color" content="#FFEC00" />
     <style>
       * { margin: 0; padding: 0; box-sizing: border-box; }
-      html, body, #root { width: 100%; height: 100%; overflow: hidden; }
+      html, body, #root {
+        width: 100%; height: 100%; overflow: hidden;
+        background: #050810;
+        color: #fff;
+      }
       body {
         touch-action: none;
         -webkit-user-select: none;
         user-select: none;
         -webkit-tap-highlight-color: transparent;
         overscroll-behavior: none;
+      }
+      /* CSS-only splash visible while React + Three.js boot. The pulsing
+         "MONACO GP" replaces the white flash that used to appear before
+         the canvas's first paint. Hidden the moment React renders. */
+      #boot-splash {
+        position: fixed; inset: 0;
+        display: flex; align-items: center; justify-content: center;
+        z-index: 99999; pointer-events: none;
+        background: radial-gradient(ellipse at center, #0a1220 0%, #050810 70%);
+        font-family: system-ui, -apple-system, sans-serif;
+        color: #FFEC00;
+        letter-spacing: 0.4em; font-weight: 800; font-size: 14px;
+        text-transform: uppercase;
+        animation: mgpBootPulse 1.4s ease-in-out infinite;
+      }
+      #root:not(:empty) ~ #boot-splash { display: none; }
+      @keyframes mgpBootPulse {
+        0%, 100% { opacity: 0.55; }
+        50%     { opacity: 1; }
       }
       @media (pointer: coarse) {
         .desktop-only { display: none !important; }
@@ -50,6 +73,7 @@
   </head>
   <body>
     <div id="root"></div>
+    <div id="boot-splash">Monaco GP</div>
     <script type="module" src="/src/main.tsx"></script>
     <script async src="https://vibej.am/2026/widget.js"></script>
   </body>

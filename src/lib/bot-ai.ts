@@ -16,7 +16,7 @@ const LAT_ACCEL = 44;
 // into a corner from a fast straight. Lower = brake later, carry more speed in.
 const DECEL_PER_M = 0.42;
 
-const curve = new CatmullRomCurve3(TRACK_POINTS, true, "catmullrom", 0.5);
+const curve = new CatmullRomCurve3(TRACK_POINTS, true, "centripetal", 0.5);
 const lapLength = curve.getLength();
 
 const cornerSpeed: number[] = new Array(SAMPLES);

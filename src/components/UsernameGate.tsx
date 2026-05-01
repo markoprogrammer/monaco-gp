@@ -124,7 +124,7 @@ export default function UsernameGate({ children }: { children: React.ReactNode }
         overflowY: "auto",
         WebkitOverflowScrolling: "touch",
         padding: "max(env(safe-area-inset-top), 12px) 12px max(env(safe-area-inset-bottom), 12px)",
-        backgroundImage: "url(/images/monaco-overview.png)",
+        backgroundImage: "url(/images/start-bg.png)",
         backgroundSize: "cover",
         backgroundPosition: "center",
         backgroundColor: "#050810",
@@ -139,7 +139,7 @@ export default function UsernameGate({ children }: { children: React.ReactNode }
           inset: 0,
           pointerEvents: "none",
           background:
-            "linear-gradient(180deg, rgba(5,8,16,0.55) 0%, rgba(5,8,16,0.25) 40%, rgba(5,8,16,0.85) 100%)",
+            "linear-gradient(180deg, rgba(5,8,16,0.18) 0%, rgba(5,8,16,0.05) 40%, rgba(5,8,16,0.45) 100%)",
         }}
       />
       <form
@@ -149,12 +149,10 @@ export default function UsernameGate({ children }: { children: React.ReactNode }
           width: "min(420px, 100%)",
           padding: "24px 22px",
           margin: "auto 0",
-          background: "rgba(10, 14, 28, 0.55)",
-          border: "1px solid rgba(255,255,255,0.1)",
+          background: "rgba(6, 8, 14, 0.78)",
+          border: "1px solid rgba(255,255,255,0.18)",
           borderRadius: 16,
-          boxShadow: "0 24px 80px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,236,0,0.06) inset",
-          backdropFilter: "blur(14px)",
-          WebkitBackdropFilter: "blur(14px)",
+          boxShadow: "0 24px 80px rgba(0,0,0,0.65), 0 0 0 1px rgba(255,236,0,0.10) inset",
           boxSizing: "border-box",
         }}
       >
@@ -172,11 +170,11 @@ export default function UsernameGate({ children }: { children: React.ReactNode }
         <h1 style={{ fontSize: "clamp(22px, 6vw, 28px)", fontWeight: 700, margin: 0, marginBottom: 6 }}>
           Enter your name
         </h1>
-        <p style={{ fontSize: 14, color: "#9aa4b8", margin: 0, marginBottom: 10, lineHeight: 1.45 }}>
+        <p style={{ fontSize: 14, color: "#e6ecf3", margin: 0, marginBottom: 10, lineHeight: 1.45 }}>
           <strong style={{ color: "#FFEC00" }}>Time trial</strong> — chase the fastest lap and climb the global leaderboard.
         </p>
-        <p style={{ fontSize: 13, color: "#7b8499", margin: 0, marginBottom: 12, lineHeight: 1.45 }}>
-          <strong style={{ color: "#cbd3e1" }}>Live multiplayer:</strong> every other driver online is on the same track with you, in real time.
+        <p style={{ fontSize: 13, color: "#d3dbe8", margin: 0, marginBottom: 12, lineHeight: 1.45 }}>
+          <strong style={{ color: "#ffffff" }}>Live multiplayer:</strong> every other driver online is on the same track with you, in real time.
         </p>
 
         {/* Live driver counter — pulsing badge to make it obvious people are racing right now */}
@@ -205,7 +203,7 @@ export default function UsernameGate({ children }: { children: React.ReactNode }
               animation: liveCount && liveCount > 0 ? "mgpPulse 1.4s ease-in-out infinite" : "none",
             }}
           />
-          <span style={{ color: liveCount && liveCount > 0 ? "#86efac" : "#9aa4b8" }}>
+          <span style={{ color: liveCount && liveCount > 0 ? "#86efac" : "#e6ecf3" }}>
             {liveCount == null
               ? "Connecting…"
               : liveCount === 0
@@ -220,13 +218,13 @@ export default function UsernameGate({ children }: { children: React.ReactNode }
           <div
             style={{
               fontSize: 11,
-              color: "#7b8499",
+              color: "#d3dbe8",
               marginBottom: 16,
               letterSpacing: "0.06em",
               textTransform: "uppercase",
             }}
           >
-            <strong style={{ color: "#cbd3e1" }}>{allTimeUsers}</strong>{" "}
+            <strong style={{ color: "#ffffff" }}>{allTimeUsers}</strong>{" "}
             {allTimeUsers === 1 ? "driver has" : "drivers have"} ever raced here
           </div>
         )}
@@ -243,7 +241,7 @@ export default function UsernameGate({ children }: { children: React.ReactNode }
               border: "1px solid rgba(255,255,255,0.08)",
               borderRadius: 10,
               fontSize: 12,
-              color: "#cbd3e1",
+              color: "#ffffff",
               fontVariantNumeric: "tabular-nums",
             }}
           >
@@ -324,17 +322,17 @@ export default function UsernameGate({ children }: { children: React.ReactNode }
             paddingTop: 12,
             borderTop: "1px solid rgba(255,255,255,0.06)",
             fontSize: 11,
-            color: "#7a8497",
+            color: "#c9d2e0",
             lineHeight: 1.5,
             textAlign: "center",
           }}
         >
-          Car model: <strong style={{ color: "#cbd3e1" }}>GPT Image 2</strong> ×{" "}
+          Car model: <strong style={{ color: "#ffffff" }}>GPT Image 2</strong> ×{" "}
           <a
             href="https://www.tripo3d.ai/"
             target="_blank"
             rel="noreferrer"
-            style={{ color: "#cbd3e1", textDecoration: "underline" }}
+            style={{ color: "#ffffff", textDecoration: "underline" }}
           >
             Tripo3D
           </a>
@@ -344,7 +342,7 @@ export default function UsernameGate({ children }: { children: React.ReactNode }
             href="https://suno.com/"
             target="_blank"
             rel="noreferrer"
-            style={{ color: "#cbd3e1", textDecoration: "underline" }}
+            style={{ color: "#ffffff", textDecoration: "underline" }}
           >
             Suno
           </a>

@@ -1,65 +1,85 @@
 import { Vector3 } from "three";
 
-// Simplified Circuit de Monaco — scaled 1.5x for longer laps
-// Same layout, more room to drive
+// Real-shape Circuit de Monaco — flat (y = 0). Points are the line-segment
+// vertices of an SVG polyline reference of the actual circuit, centred
+// around the origin and scaled up so a lap feels generous.
+//
+// Source viewBox: 1100 × 510.5, centre (550, 255.25), scale 1.6 → final
+// track span ~1760 × 817 world units.
 
-const S = 1.5; // scale factor
+const Y = 0;
 
 export const TRACK_POINTS: Vector3[] = [
-  // === Start/Finish straight ===
-  new Vector3(-15 * S, 0, 30 * S),
-  new Vector3(-15 * S, 0, 10 * S),
-  new Vector3(-15 * S, 0, -10 * S),
-  new Vector3(-15 * S, 0, -30 * S),
-
-  // === Sainte Devote ===
-  new Vector3(-12 * S, 0.5, -48 * S),
-  new Vector3(-5 * S, 1, -58 * S),
-  new Vector3(10 * S, 1.5, -65 * S),
-
-  // === Beau Rivage — uphill ===
-  new Vector3(30 * S, 3, -70 * S),
-  new Vector3(50 * S, 5, -75 * S),
-  new Vector3(70 * S, 7, -80 * S),
-
-  // === Casino Square — hairpin ===
-  new Vector3(90 * S, 9, -82 * S),
-  new Vector3(105 * S, 10, -78 * S),
-  new Vector3(112 * S, 10, -68 * S),
-  new Vector3(110 * S, 10, -55 * S),
-  new Vector3(100 * S, 10, -48 * S),
-
-  // === Mirabeau — downhill ===
-  new Vector3(95 * S, 9, -38 * S),
-  new Vector3(93 * S, 8, -25 * S),
-  new Vector3(93 * S, 7, -12 * S),
-
-  // === Tunnel ===
-  new Vector3(95 * S, 6, 5 * S),
-  new Vector3(96 * S, 5, 22 * S),
-  new Vector3(95 * S, 4, 38 * S),
-  new Vector3(92 * S, 3, 52 * S),
-
-  // === Chicane ===
-  new Vector3(85 * S, 2, 62 * S),
-  new Vector3(72 * S, 1.5, 68 * S),
-  new Vector3(58 * S, 1, 66 * S),
-
-  // === Swimming Pool ===
-  new Vector3(44 * S, 0.5, 60 * S),
-  new Vector3(32 * S, 0.3, 62 * S),
-  new Vector3(22 * S, 0.2, 58 * S),
-
-  // === Rascasse ===
-  new Vector3(12 * S, 0.1, 52 * S),
-  new Vector3(5 * S, 0, 48 * S),
-  new Vector3(0 * S, 0, 44 * S),
-  new Vector3(-5 * S, 0, 42 * S),
-
-  // === Anthony Noghes ===
-  new Vector3(-10 * S, 0, 40 * S),
-  new Vector3(-14 * S, 0, 36 * S),
+  new Vector3(-795.86, Y, 243.54),
+  new Vector3(-717.63, Y, 313.23),
+  new Vector3(-684.10, Y, 328.42),
+  new Vector3(-665.54, Y, 325.31),
+  // Wobble vertex at (-670.50, 322.06) removed — only 5u from the previous
+  // point and reverses x direction, which Catmull-Rom amplifies into a
+  // visible kink in the road outline.
+  new Vector3(-665.02, Y, 293.89),
+  new Vector3(-682.26, Y, 237.78),
+  new Vector3(-684.45, Y, 198.93),
+  new Vector3(-676.30, Y, 114.30),
+  new Vector3(-662.19, Y, 62.51),
+  new Vector3(-641.31, Y, 45.22),
+  new Vector3(-605.60, Y, 40.40),
+  new Vector3(-593.78, Y, 31.55),
+  new Vector3(-517.47, Y, -58.54),
+  new Vector3(-514.56, Y, -105.55),
+  new Vector3(-504.58, Y, -129.46),
+  new Vector3(-412.77, Y, -212.27),
+  new Vector3(-382.99, Y, -225.46),
+  new Vector3(-361.41, Y, -221.97),
+  new Vector3(-339.90, Y, -209.07),
+  new Vector3(-174.46, Y, -80.82),
+  new Vector3(-156.75, Y, -57.31),
+  new Vector3(-145.90, Y, -17.14),
+  new Vector3(-128.56, Y, -3.63),
+  new Vector3(-104.70, Y, 4.40),
+  // Chicane zigzag points removed — Catmull-Rom self-intersected here and
+  // boxed the spawn in with overlapping guardrails. Smooth straight instead.
+  new Vector3(75.20, Y, 55.76),
+  new Vector3(182.62, Y, 114.96),
+  new Vector3(263.54, Y, 146.61),
+  new Vector3(358.37, Y, 169.26),
+  new Vector3(455.38, Y, 164.13),
+  new Vector3(535.38, Y, 138.24),
+  new Vector3(775.09, Y, -11.06),
+  new Vector3(800.00, Y, -36.05),
+  new Vector3(798.78, Y, -52.05),
+  new Vector3(787.55, Y, -68.90),
+  // Mirabeau / Loews / Mirabeau Bas complex — heavily simplified. The raw
+  // SVG had ~10 close-spaced vertices through this hairpin which caused
+  // Catmull-Rom to overshoot and loop. Three strategic apexes let the
+  // spline draw a smooth wide hairpin without doubling back on itself.
+  new Vector3(739.98, Y, -93.12),
+  new Vector3(670.18, Y, -32.66),
+  new Vector3(622.75, Y, -76.51),
+  new Vector3(662.61, Y, -230.10),
+  new Vector3(428.59, Y, -185.98),
+  new Vector3(366.90, Y, -165.50),
+  new Vector3(345.71, Y, -134.14),
+  new Vector3(331.10, Y, -34.75),
+  new Vector3(313.49, Y, 2.32),
+  new Vector3(292.58, Y, 25.23),
+  new Vector3(271.62, Y, 36.96),
+  new Vector3(217.28, Y, 37.46),
+  new Vector3(152.91, Y, 7.23),
+  new Vector3(72.37, Y, -56.13),
+  new Vector3(-47.79, Y, -112.35),
+  new Vector3(-333.17, Y, -293.87),
+  new Vector3(-368.13, Y, -325.50),
+  new Vector3(-381.68, Y, -328.40),
+  new Vector3(-415.23, Y, -309.42),
+  new Vector3(-588.30, Y, -150.34),
+  new Vector3(-674.67, Y, -52.56),
+  new Vector3(-723.68, Y, 33.60),
+  new Vector3(-749.68, Y, 109.76),
+  new Vector3(-760.34, Y, 165.78),
+  new Vector3(-800.00, Y, 222.40),
 ];
 
-export const TRACK_WIDTH = 15;
-export const GUARDRAIL_HEIGHT = 1.5;
+// Wider road to match the much larger track scale.
+export const TRACK_WIDTH = 18;
+export const GUARDRAIL_HEIGHT = 0.75;

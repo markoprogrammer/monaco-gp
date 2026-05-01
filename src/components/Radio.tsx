@@ -180,14 +180,14 @@ export default function Radio() {
   }
 
   const btn: React.CSSProperties = {
-    background: "transparent",
+    background: "rgba(255,255,255,0.06)",
     border: "1px solid rgba(255,255,255,0.25)",
     color: "#fff",
-    width: 26,
-    height: 26,
-    borderRadius: 4,
+    width: isTouch ? 44 : 26,
+    height: isTouch ? 40 : 26,
+    borderRadius: 6,
     cursor: "pointer",
-    fontSize: 13,
+    fontSize: isTouch ? 18 : 13,
     fontFamily: "inherit",
     display: "flex",
     alignItems: "center",
@@ -207,8 +207,8 @@ export default function Radio() {
         fontFamily: "'Courier New', monospace",
         color: "#fff",
         pointerEvents: "auto",
-        minWidth: isTouch ? 180 : 230,
-        maxWidth: isTouch ? 200 : undefined,
+        minWidth: isTouch ? 240 : 230,
+        maxWidth: isTouch ? 260 : undefined,
         userSelect: "none",
       }}
     >
@@ -237,22 +237,50 @@ export default function Radio() {
       >
         {prettyTitle(current)}
       </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-        <button onClick={prev} style={btn} aria-label="Previous" title="Prev [ [ ]">⏮</button>
-        <button onClick={toggle} style={{ ...btn, width: 32 }} aria-label={playing ? "Pause" : "Play"} title="Play/Pause [M]">
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: isTouch ? 10 : 6,
+          justifyContent: isTouch ? "space-between" : "flex-start",
+        }}
+      >
+        <button
+          onClick={prev}
+          style={isTouch ? { ...btn, flex: 1 } : btn}
+          aria-label="Previous"
+          title="Prev [ [ ]"
+        >
+          ⏮
+        </button>
+        <button
+          onClick={toggle}
+          style={isTouch ? { ...btn, flex: 1 } : { ...btn, width: 32 }}
+          aria-label={playing ? "Pause" : "Play"}
+          title="Play/Pause [M]"
+        >
           {playing ? "⏸" : "▶"}
         </button>
-        <button onClick={next} style={btn} aria-label="Next" title="Next [ ] ]">⏭</button>
-        <input
-          type="range"
-          min={0}
-          max={1}
-          step={0.01}
-          value={volume}
-          onChange={(e) => setVolume(parseFloat(e.target.value))}
-          style={{ flex: 1, marginLeft: 4, accentColor: "#a855f7" }}
-          aria-label="Volume"
-        />
+        <button
+          onClick={next}
+          style={isTouch ? { ...btn, flex: 1 } : btn}
+          aria-label="Next"
+          title="Next [ ] ]"
+        >
+          ⏭
+        </button>
+        {!isTouch && (
+          <input
+            type="range"
+            min={0}
+            max={1}
+            step={0.01}
+            value={volume}
+            onChange={(e) => setVolume(parseFloat(e.target.value))}
+            style={{ flex: 1, marginLeft: 4, accentColor: "#a855f7" }}
+            aria-label="Volume"
+          />
+        )}
       </div>
     </div>
   );

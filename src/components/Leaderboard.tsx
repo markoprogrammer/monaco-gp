@@ -41,7 +41,9 @@ function formatLap(ms: number): string {
 export default function Leaderboard() {
   const isTouch = useIsTouch();
   const [rows, setRows] = useState<Row[]>([]);
+  const [rowsAll, setRowsAll] = useState<Row[]>([]);
   const [totalUsers, setTotalUsers] = useState(0);
+  const [totalUsersAll, setTotalUsersAll] = useState(0);
   const [mode, setMode] = useState<Mode>("best");
   const [open, setOpen] = useState(!isTouch);
   const [maximized, setMaximized] = useState(false);
@@ -83,7 +85,7 @@ export default function Leaderboard() {
   }, [username, selfColor]);
 
   const load = useCallback(async () => {
-    // Pull a generous slice and aggregate per-user client-side.
+    // No date filter — Fastest and Most Laps both pull all-time data.
     const { data, error } = await supabase
       .from("lap_times")
       .select("username, lap_time_ms")
@@ -93,23 +95,20 @@ export default function Leaderboard() {
       console.warn("[leaderboard]", error.message);
       return;
     }
-    const agg = new Map<string, { best: number; laps: number }>();
-    for (const r of data ?? []) {
-      const cur = agg.get(r.username);
-      if (cur == null) {
-        agg.set(r.username, { best: r.lap_time_ms, laps: 1 });
-      } else {
+    const m = new Map<string, { best: number; laps: number }>();
+    for (const r of (data ?? []) as { username: string; lap_time_ms: number }[]) {
+      const cur = m.get(r.username);
+      if (cur == null) m.set(r.username, { best: r.lap_time_ms, laps: 1 });
+      else {
         if (r.lap_time_ms < cur.best) cur.best = r.lap_time_ms;
         cur.laps += 1;
       }
     }
-    const all = [...agg.entries()].map(([username, v]) => ({
-      username,
-      lap_time_ms: v.best,
-      laps: v.laps,
-    }));
-    setTotalUsers(all.length);
+    const all = [...m.entries()].map(([u, v]) => ({ username: u, lap_time_ms: v.best, laps: v.laps }));
     setRows(all);
+    setRowsAll(all);
+    setTotalUsers(all.length);
+    setTotalUsersAll(all.length);
   }, []);
 
   useEffect(() => {
@@ -441,19 +440,23 @@ export default function Leaderboard() {
               );
             }
 
+            const sourceRows = mode === "laps" ? rowsAll : rows;
+            const sourceTotal = mode === "laps" ? totalUsersAll : totalUsers;
             const sorted =
               mode === "best"
-                ? [...rows].sort((a, b) => a.lap_time_ms - b.lap_time_ms)
-                : [...rows].sort(
+                ? [...sourceRows].sort((a, b) => a.lap_time_ms - b.lap_time_ms)
+                : [...sourceRows].sort(
                     (a, b) => b.laps - a.laps || a.lap_time_ms - b.lap_time_ms,
                   );
             const top = sorted.slice(0, TOP_N);
-            const othersShown = Math.max(0, totalUsers - top.length);
+            const othersShown = Math.max(0, sourceTotal - top.length);
 
             if (top.length === 0) {
               return (
-                <div style={{ fontSize: 13, color: "#9aa4b8", padding: "6px 0" }}>
-                  No times yet. Set the first one.
+                <div style={{ fontSize: 13, color: "#9aa4b8", padding: "6px 0", textAlign: "center", lineHeight: 1.45 }}>
+                  {mode === "best"
+                    ? "New track — drive to set the first time!"
+                    : "No times yet. Set the first one."}
                 </div>
               );
             }

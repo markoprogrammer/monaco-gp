@@ -1,6 +1,46 @@
 import { useMemo } from "react";
 import { BufferGeometry, Float32BufferAttribute, CatmullRomCurve3, CanvasTexture, NearestFilter, RepeatWrapping, BackSide, DoubleSide, SphereGeometry, Color } from "three";
+import { MeshBasicNodeMaterial } from "three/webgpu";
+import { vertexColor } from "three/tsl";
 import { TRACK_POINTS, TRACK_WIDTH } from "../lib/track-data";
+import envZones from "../lib/env-zones.json";
+import CarModel from "./CarModel";
+
+interface XZ { x: number; z: number }
+const SEA_POLYLINE: XZ[] = envZones.seaSegments[0] as XZ[];
+const BUILDING_POLYLINES: XZ[][] = envZones.buildingSegments as XZ[][];
+
+/** Standard ray-cast point-in-polygon test for an XZ polygon. */
+function pointInPolyXZ(px: number, pz: number, poly: { x: number; z: number }[]): boolean {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const xi = poly[i]!.x, zi = poly[i]!.z;
+    const xj = poly[j]!.x, zj = poly[j]!.z;
+    const intersect =
+      ((zi > pz) !== (zj > pz)) &&
+      px < ((xj - xi) * (pz - zi)) / ((zj - zi) || 1e-9) + xi;
+    if (intersect) inside = !inside;
+  }
+  return inside;
+}
+
+/** Compute the outward unit normal at index `i` of a polyline, sign-flipped
+ *  to point AWAY from the given centroid. Tangent is taken over a window of
+ *  ±2 neighbours so it stays smooth when the recorded polyline wiggles.
+ */
+function polyOutward(points: XZ[], i: number, cx: number, cz: number) {
+  const span = 2;
+  const a = points[Math.max(0, i - span)]!;
+  const b = points[Math.min(points.length - 1, i + span)]!;
+  const tx = b.x - a.x;
+  const tz = b.z - a.z;
+  let nx = -tz;
+  let nz = tx;
+  const p = points[i]!;
+  if (nx * (p.x - cx) + nz * (p.z - cz) < 0) { nx = -nx; nz = -nz; }
+  const len = Math.hypot(nx, nz) || 1;
+  return { ox: nx / len, oz: nz / len, tx, tz };
+}
 
 const SUN_POS: [number, number, number] = [-300, 130, -50];
 
@@ -298,6 +338,74 @@ function createTowerTexture(floors: number, variant: number): CanvasTexture {
   return tex;
 }
 
+/** Modern glass skyscraper — amber/golden tinted reflective panels, like sunset on a Monaco harbour tower. */
+function createGlassTowerTexture(floors: number, variant: number): CanvasTexture {
+  const w = 256, h = 512;
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d")!;
+
+  // Vertical gradient — slightly darker frame at the top.
+  const grad = ctx.createLinearGradient(0, 0, 0, h);
+  grad.addColorStop(0, "#3a3530");
+  grad.addColorStop(1, "#5a4d3a");
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, w, h);
+
+  // Amber glass tones — yellowish, with variation per variant.
+  const ambers = [
+    ["#f5c763", "#d99a3a", "#c47e22"],
+    ["#f7d27a", "#e0a44a", "#b87830"],
+    ["#ffd66e", "#dca33d", "#a8702a"],
+    ["#f0bd58", "#d4933a", "#a06820"],
+  ];
+  const palette = ambers[variant % ambers.length]!;
+
+  const cols = 5 + (variant % 3);
+  const colW = Math.floor(w / cols);
+  const winW = colW - 4;
+  const floorH = Math.floor(h / Math.max(floors, 8));
+  const winH = Math.floor(floorH * 0.78);
+
+  for (let f = 0; f < floors; f++) {
+    const fy = h - (f + 1) * floorH + Math.floor(floorH * 0.11);
+    for (let c = 0; c < cols; c++) {
+      const wx = c * colW + 2;
+
+      // Pseudo-random pick from amber palette per panel — varies by floor & col.
+      const idx = (c * 7 + f * 11 + variant * 3) % palette.length;
+      ctx.fillStyle = palette[idx]!;
+      ctx.fillRect(wx, fy, winW, winH);
+
+      // Bright reflection streak
+      ctx.fillStyle = "rgba(255,240,200,0.35)";
+      ctx.fillRect(wx, fy, Math.floor(winW * 0.28), winH);
+
+      // Deeper amber pool in the lower half (warm interior)
+      ctx.fillStyle = "rgba(180,110,40,0.22)";
+      ctx.fillRect(wx, fy + Math.floor(winH * 0.55), winW, Math.floor(winH * 0.45));
+
+      // Mullion (vertical divider mid-window)
+      ctx.fillStyle = "rgba(40,30,20,0.55)";
+      ctx.fillRect(wx + Math.floor(winW / 2), fy, 1, winH);
+    }
+    // Floor slab — dark band between floors
+    ctx.fillStyle = "rgba(30,22,16,0.7)";
+    ctx.fillRect(0, fy + winH, w, floorH - winH);
+  }
+
+  // Crown — slightly brighter strip at the top to suggest a lit cornice.
+  ctx.fillStyle = "rgba(255,210,120,0.25)";
+  ctx.fillRect(0, 0, w, 6);
+
+  const tex = new CanvasTexture(canvas);
+  tex.magFilter = NearestFilter;
+  tex.wrapS = RepeatWrapping;
+  tex.wrapT = RepeatWrapping;
+  return tex;
+}
+
 /** Classic gold Monaco facade — warm yellow, ornate balconies, arched ground floor */
 function createGoldTexture(floors: number): CanvasTexture {
   const w = 256, h = 256;
@@ -455,27 +563,35 @@ function createModernTerracedTexture(floors: number): CanvasTexture {
   return tex;
 }
 
-// Pre-generate all texture types
+// Pre-generate texture banks at module load. Counts are kept lean —
+// each <canvas> draw is ~10-30ms on first paint and they all live in
+// memory permanently. Re-using fewer textures is faster to start AND
+// reduces GPU texture-binds because more meshes share the same map.
 const FACADE_TEXTURES: CanvasTexture[] = [];
-for (let i = 0; i < BLDG_COLORS.length; i++) {
+const FACADE_BANK = Math.min(BLDG_COLORS.length, 4);
+for (let i = 0; i < FACADE_BANK; i++) {
   FACADE_TEXTURES.push(
     createFacadeTexture(BLDG_COLORS[i]!, 4 + (i % 4), SHUTTER_COLORS[i % SHUTTER_COLORS.length]!)
   );
 }
 const GRAND_TEXTURES: CanvasTexture[] = [];
-for (let i = 0; i < 5; i++) {
+for (let i = 0; i < 2; i++) {
   GRAND_TEXTURES.push(createGrandTexture(4 + i));
 }
 const TOWER_TEXTURES: CanvasTexture[] = [];
-for (let i = 0; i < 6; i++) {
+for (let i = 0; i < 3; i++) {
   TOWER_TEXTURES.push(createTowerTexture(8 + i * 2, i));
 }
+const GLASS_TOWER_TEXTURES: CanvasTexture[] = [];
+for (let i = 0; i < 2; i++) {
+  GLASS_TOWER_TEXTURES.push(createGlassTowerTexture(12 + i * 2, i));
+}
 const GOLD_TEXTURES: CanvasTexture[] = [];
-for (let i = 0; i < 4; i++) {
+for (let i = 0; i < 2; i++) {
   GOLD_TEXTURES.push(createGoldTexture(4 + i));
 }
 const MODERN_TERRACED_TEXTURES: CanvasTexture[] = [];
-for (let i = 0; i < 3; i++) {
+for (let i = 0; i < 2; i++) {
   MODERN_TERRACED_TEXTURES.push(createModernTerracedTexture(10 + i * 3));
 }
 
@@ -486,6 +602,7 @@ interface Bldg {
   type: "block" | "tower";
   floors: number;
   mansard: boolean;
+  roofColor?: string;
 }
 
 function seededRng(seed: number) {
@@ -493,21 +610,30 @@ function seededRng(seed: number) {
   return () => { s = (s * 16807) % 2147483647; return s / 2147483647; };
 }
 
-// Track samples for elevation lookup — computed once from spline
-const _elCurve = new CatmullRomCurve3(TRACK_POINTS, true, "catmullrom", 0.5);
+// Track samples — computed once from spline. The track is now flat (y=0)
+// and much larger; we still keep `getTrackElevation` for legacy callers.
+const _elCurve = new CatmullRomCurve3(TRACK_POINTS, true, "centripetal", 0.5);
 const TRACK_SAMPLES: { x: number; y: number; z: number }[] = [];
 for (let i = 0; i < 800; i++) {
   const pt = _elCurve.getPointAt(i / 800);
   TRACK_SAMPLES.push({ x: pt.x, y: pt.y, z: pt.z });
 }
 
-function getTrackElevation(x: number, z: number): number {
-  let best = 9999, y = 0;
-  for (const s of TRACK_SAMPLES) {
-    const d = (x - s.x) ** 2 + (z - s.z) ** 2;
-    if (d < best) { best = d; y = s.y; }
+// Track bounds, computed once. Used to position the city, sea, beach.
+const TRACK_BOUNDS = (() => {
+  let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+  for (const p of TRACK_POINTS) {
+    if (p.x < minX) minX = p.x;
+    if (p.x > maxX) maxX = p.x;
+    if (p.z < minZ) minZ = p.z;
+    if (p.z > maxZ) maxZ = p.z;
   }
-  return y;
+  return { minX, maxX, minZ, maxZ };
+})();
+
+function getTrackElevation(_x: number, _z: number): number {
+  // Track is now flat — kept for any legacy hook that still calls this.
+  return 0;
 }
 
 function generateCity(): Bldg[] {
@@ -515,32 +641,15 @@ function generateCity(): Bldg[] {
   const buildings: Bldg[] = [];
   const G = -0.5;
 
-  // Track points [x, y, z] for street row + collision
-  const rawPts: [number, number, number][] = [
-    [-22.5,0,45],[-22.5,0,15],[-22.5,0,-15],[-22.5,0,-45],
-    [-18,0.5,-72],[-7.5,1,-87],[15,1.5,-97.5],
-    [45,3,-105],[75,5,-112.5],[105,7,-120],
-    [135,9,-123],[157.5,10,-117],[168,10,-102],[165,10,-82.5],[150,10,-72],
-    [142.5,9,-57],[139.5,8,-37.5],[139.5,7,-18],
-    [142.5,6,7.5],[144,5,33],[142.5,4,57],[138,3,78],
-    [127.5,2,93],[108,1.5,102],[87,1,99],
-    [66,0.5,90],[48,0.3,93],[33,0.2,87],
-    [18,0.1,78],[7.5,0,72],[0,0,66],[-7.5,0,63],
-    [-15,0,60],[-21,0,54],
-  ];
+  // Track centroid + outward normal per sample. We'll seed buildings along
+  // the track contour, on the OUTSIDE of the loop, in two stepped rows.
+  let cx = 0, cz = 0;
+  for (const s of TRACK_SAMPLES) { cx += s.x; cz += s.z; }
+  cx /= TRACK_SAMPLES.length;
+  cz /= TRACK_SAMPLES.length;
 
-  // Interpolated XZ for collision check
-  const trackPts: [number, number][] = [];
-  for (let i = 0; i < rawPts.length; i++) {
-    const a = rawPts[i]!;
-    const b = rawPts[(i + 1) % rawPts.length]!;
-    for (let t = 0; t < 4; t++) {
-      const f = t / 4;
-      trackPts.push([a[0] + (b[0] - a[0]) * f, a[2] + (b[2] - a[2]) * f]);
-    }
-  }
-
-  function tooClose(x: number, z: number, halfW: number): boolean {
+  const trackPts: [number, number][] = TRACK_SAMPLES.map((s) => [s.x, s.z]);
+  function tooCloseToTrack(x: number, z: number, halfW: number): boolean {
     const minDist = 16 + halfW;
     const minDistSq = minDist * minDist;
     for (const [tx, tz] of trackPts) {
@@ -550,157 +659,106 @@ function generateCity(): Bldg[] {
     return false;
   }
 
-  // Place a hillside block — extends from ground to roof
-  function addHillBlock(x: number, z: number, baseY: number, visH: number) {
-    const w = 10 + rng() * 6;
-    const d = 8 + rng() * 4;
-    if (tooClose(x, z, Math.max(w, d) / 2)) return;
-    const roofY = baseY + visH;
-    const totalH = Math.max(2, roofY - G);
+  // Cream / white / soft Mediterranean palette inspired by the photo:
+  // mostly warm white-cream facades with a few terracotta-roof toned ones.
+  const FRONT_COLORS = ["#f4ecd8", "#ece4cd", "#f2dcc0", "#e8d6b0", "#f0e7d0", "#dfc8a4"];
+  const BACK_COLORS = ["#f7f1e0", "#eae0c8", "#fbf6e8", "#e0d2b0", "#f4e8d0"];
+  const TERRACOTTA = ["#c66a4a", "#b35a3a", "#a84a30"];
+
+  // Light, varied building generation — small footprint blocks with the
+  // occasional taller mansard, sized so the town feels sparse and pretty
+  // rather than densely packed.
+  function placeBuilding(
+    x: number,
+    z: number,
+    palette: string[],
+    minH: number,
+    maxH: number,
+    minSize = 6,
+    sizeRange = 6,
+  ) {
+    const w = minSize + rng() * sizeRange;
+    const d = minSize + rng() * (sizeRange * 0.7);
+    if (tooCloseToTrack(x, z, Math.max(w, d) / 2)) return;
+    const visH = minH + rng() * (maxH - minH);
+    const totalH = Math.max(2, visH - G);
+    const wantsMansard = rng() < 0.35;
+    const roof = wantsMansard ? TERRACOTTA[Math.floor(rng() * TERRACOTTA.length)]! : undefined;
     buildings.push({
       pos: [x, G + totalH / 2, z],
       size: [w, totalH, d],
-      color: BLDG_COLORS[Math.floor(rng() * BLDG_COLORS.length)]!,
+      color: palette[Math.floor(rng() * palette.length)]!,
       type: "block",
       floors: Math.max(1, Math.floor(visH / 3)),
-      mansard: rng() < 0.4,
+      mansard: wantsMansard,
+      roofColor: roof,
     });
   }
 
-  // Place a hillside tower
-  function addHillTower(x: number, z: number, baseY: number, visH: number) {
-    const w = 12 + rng() * 8;
-    const d = 12 + rng() * 8;
-    if (tooClose(x, z, Math.max(w, d) / 2)) return;
-    const roofY = baseY + visH;
-    const totalH = Math.max(5, roofY - G);
+  // Walk track samples and lay two stepped rows on BOTH sides of the
+  // road — outer ring (away from centroid) gets the full town silhouette,
+  // inner ring (inside the loop) gets a sparser harbour-front so the
+  // sea-facing side isn't bare. Front row low, back row taller.
+  const STRIDE = 6;
+  for (let i = 0; i < TRACK_SAMPLES.length; i += STRIDE) {
+    const s = TRACK_SAMPLES[i]!;
+    const sNext = TRACK_SAMPLES[(i + 1) % TRACK_SAMPLES.length]!;
+    const tx = sNext.x - s.x;
+    const tz = sNext.z - s.z;
+    const tlen = Math.hypot(tx, tz) || 1;
+    let nxn = -tz / tlen;
+    let nzn = tx / tlen;
+    if (nxn * (s.x - cx) + nzn * (s.z - cz) < 0) {
+      nxn = -nxn;
+      nzn = -nzn;
+    }
+
+    const jitterFront = ((i * 7) % 11) - 5;
+    const jitterBack = ((i * 13) % 9) - 4;
+
+    // Outer side — front row (close to track) + back row (taller, set back).
+    {
+      const fx = s.x + nxn * 22 + (-nzn) * jitterFront;
+      const fz = s.z + nzn * 22 + nxn * jitterFront;
+      placeBuilding(fx, fz, FRONT_COLORS, 6, 12, 7, 5);
+
+      const bx = s.x + nxn * 48 + (-nzn) * jitterBack;
+      const bz = s.z + nzn * 48 + nxn * jitterBack;
+      placeBuilding(bx, bz, BACK_COLORS, 12, 22, 9, 7);
+    }
+
+    // Inner side is sea / harbour — no buildings here.
+  }
+
+  // A handful of taller signature buildings placed sparsely further out
+  // (the modern white/glass towers visible above the harbor in the photo).
+  const TOWER_STRIDE = 36;
+  for (let i = 0; i < TRACK_SAMPLES.length; i += TOWER_STRIDE) {
+    const s = TRACK_SAMPLES[i]!;
+    const sNext = TRACK_SAMPLES[(i + 1) % TRACK_SAMPLES.length]!;
+    const tx = sNext.x - s.x;
+    const tz = sNext.z - s.z;
+    const tlen = Math.hypot(tx, tz) || 1;
+    let nxn = -tz / tlen;
+    let nzn = tx / tlen;
+    if (nxn * (s.x - cx) + nzn * (s.z - cz) < 0) {
+      nxn = -nxn;
+      nzn = -nzn;
+    }
+    const x = s.x + nxn * 80;
+    const z = s.z + nzn * 80;
+    if (tooCloseToTrack(x, z, 12)) continue;
+    const visH = 24 + rng() * 18;
+    const totalH = Math.max(8, visH - G);
     buildings.push({
       pos: [x, G + totalH / 2, z],
-      size: [w, totalH, d],
-      color: rng() > 0.5 ? "#c0c0c0" : "#d0d0d8",
+      size: [11 + rng() * 4, totalH, 11 + rng() * 4],
+      color: rng() > 0.5 ? "#e8e2d4" : "#dadada",
       type: "tower",
-      floors: Math.max(3, Math.floor(visH / 3)),
+      floors: Math.max(4, Math.floor(visH / 3)),
       mansard: false,
     });
   }
-
-  // ================================================
-  // RING 1: Street row — along track, elevation-aware
-  // ================================================
-  for (let i = 0; i < rawPts.length; i++) {
-    const a = rawPts[i]!;
-    const b = rawPts[(i + 1) % rawPts.length]!;
-    const dx = b[0] - a[0], dz = b[2] - a[2];
-    const dy = b[1] - a[1];
-    const len = Math.sqrt(dx * dx + dz * dz);
-    if (len < 1) continue;
-    const nx = -dz / len, nz = dx / len;
-    const steps = Math.max(1, Math.floor(len / 12));
-
-    for (let s = 0; s < steps; s++) {
-      const t = s / steps;
-      const px = a[0] + dx * t;
-      const pz = a[2] + dz * t;
-      const trackY = a[1] + dy * t;
-
-      for (const side of [1, -1]) {
-        const bx = px + nx * 16 * side;
-        const bz = pz + nz * 16 * side;
-        if (bx < -25) continue;
-        if (tooClose(bx, bz, 8)) continue;
-
-        // Sea-facing cascade: base lower on downhill side
-        let baseY: number;
-        if (side === -1 && trackY > 2) {
-          baseY = trackY * 0.3;
-        } else {
-          baseY = trackY - 1;
-        }
-        addHillBlock(bx, bz, baseY, 6 + rng() * 7);
-      }
-    }
-  }
-
-  // ================================================
-  // RING 2: Second row — behind street, peeks above
-  // ================================================
-  for (let i = 0; i < rawPts.length; i++) {
-    const a = rawPts[i]!;
-    const b = rawPts[(i + 1) % rawPts.length]!;
-    const dx = b[0] - a[0], dz = b[2] - a[2];
-    const dy = b[1] - a[1];
-    const len = Math.sqrt(dx * dx + dz * dz);
-    if (len < 1) continue;
-    const nx = -dz / len, nz = dx / len;
-    const steps = Math.max(1, Math.floor(len / 18));
-
-    for (let s = 0; s < steps; s++) {
-      const t = s / steps;
-      const px = a[0] + dx * t;
-      const pz = a[2] + dz * t;
-      const trackY = a[1] + dy * t;
-
-      for (const side of [1, -1]) {
-        const bx = px + nx * 34 * side;
-        const bz = pz + nz * 34 * side;
-        if (bx < -25) continue;
-
-        const baseY = trackY + 3 + rng() * 4;
-        addHillBlock(bx, bz, baseY, 8 + rng() * 10);
-      }
-    }
-  }
-
-  // ================================================
-  // RING 3: City fills — elevation-aware
-  // ================================================
-  function fillHill(x0: number, x1: number, z0: number, z1: number,
-    step: number, extraBase: number, minVis: number, maxVis: number) {
-    for (let gx = x0; gx <= x1; gx += step) {
-      for (let gz = z0; gz <= z1; gz += step) {
-        const bx = gx + rng() * 3;
-        const bz = gz + rng() * 3;
-        if (bx < -25) continue;
-        const trackY = getTrackElevation(bx, bz);
-        addHillBlock(bx, bz, trackY + extraBase, minVis + rng() * (maxVis - minVis));
-      }
-    }
-  }
-
-  // Inside loop
-  fillHill(5, 115, -35, 60, 16, 2, 8, 16);
-  // Behind Beau Rivage
-  fillHill(-10, 100, -130, -100, 16, 4, 10, 18);
-  // Behind Casino
-  fillHill(110, 180, -160, -100, 16, 5, 10, 20);
-  // East of tunnel
-  fillHill(155, 200, -50, 70, 16, 4, 10, 16);
-  // South
-  fillHill(-10, 125, 95, 150, 16, 1, 6, 14);
-  // Southeast
-  fillHill(125, 160, 85, 150, 16, 2, 8, 14);
-  // Northwest
-  fillHill(-45, 0, -100, -55, 16, 1, 8, 14);
-
-  // ================================================
-  // RING 4: Background towers — skyline
-  // ================================================
-  function fillSkyline(x0: number, x1: number, z0: number, z1: number, step: number) {
-    for (let gx = x0; gx <= x1; gx += step) {
-      for (let gz = z0; gz <= z1; gz += step) {
-        const bx = gx + rng() * 3;
-        const bz = gz + rng() * 3;
-        const trackY = getTrackElevation(bx, bz);
-        addHillTower(bx, bz, trackY + 8 + rng() * 8, 30 + rng() * 35);
-      }
-    }
-  }
-
-  fillSkyline(-30, 250, -220, -170, 24);
-  fillSkyline(200, 280, -90, 70, 26);
-  fillSkyline(-20, 140, 155, 200, 26);
-  fillSkyline(60, 130, -80, -45, 40);
-  fillSkyline(175, 210, -130, -80, 30);
 
   return buildings;
 }
@@ -709,7 +767,7 @@ const CITY = generateCity();
 
 /** Generate support wall geometry under elevated track sections */
 function buildSupportGeometry() {
-  const curve = new CatmullRomCurve3(TRACK_POINTS, true, "catmullrom", 0.5);
+  const curve = new CatmullRomCurve3(TRACK_POINTS, true, "centripetal", 0.5);
   const segments = 600; // more segments = smoother on curves
   const ground = -0.6;
   const minElev = 1.0;
@@ -780,25 +838,95 @@ function buildSupportGeometry() {
   return geom;
 }
 
-/** Beach strip with wavy right edge (grass side) */
+// Beach + sea live to the SOUTH of the track (positive z). Beach is a thin
+// strip hugging the southern edge; sea extends beyond to the horizon.
+const BEACH_Z_NEAR = TRACK_BOUNDS.maxZ + 60; // matches inSea() threshold above
+const BEACH_Z_FAR = TRACK_BOUNDS.maxZ + 140;
+const BEACH_X_LEFT = TRACK_BOUNDS.minX - 200;
+const BEACH_X_RIGHT = TRACK_BOUNDS.maxX + 200;
+
+/** Beach strip whose track-facing edge hugs the southern outline of the
+ *  track (so the sand follows wherever the road bulges south), with a wavy
+ *  micro-detail on top. The far edge is straight and tucked under the sea. */
+/** Sea geometry for the harbour INSIDE the closed track loop. We inset
+ *  each track sample slightly toward the loop centroid to leave a small
+ *  gap between road and water, then fan-triangulate from the centroid. */
+function buildInnerSeaGeometry() {
+  let cx = 0, cz = 0;
+  for (const s of TRACK_SAMPLES) { cx += s.x; cz += s.z; }
+  cx /= TRACK_SAMPLES.length;
+  cz /= TRACK_SAMPLES.length;
+
+  const INSET = 14; // gap between road and water edge
+  const positions: number[] = [];
+  const indices: number[] = [];
+
+  // Vertex 0 = centroid
+  positions.push(cx, -0.45, cz);
+
+  for (let i = 0; i < TRACK_SAMPLES.length; i++) {
+    const s = TRACK_SAMPLES[i]!;
+    const sNext = TRACK_SAMPLES[(i + 1) % TRACK_SAMPLES.length]!;
+    const tx = sNext.x - s.x;
+    const tz = sNext.z - s.z;
+    const tlen = Math.hypot(tx, tz) || 1;
+    let nxn = -tz / tlen;
+    let nzn = tx / tlen;
+    // Inward normal — toward centroid.
+    if (nxn * (s.x - cx) + nzn * (s.z - cz) > 0) {
+      nxn = -nxn;
+      nzn = -nzn;
+    }
+    const px = s.x + nxn * INSET;
+    const pz = s.z + nzn * INSET;
+    positions.push(px, -0.45, pz);
+  }
+
+  const N = TRACK_SAMPLES.length;
+  for (let i = 0; i < N; i++) {
+    const a = 1 + i;
+    const b = 1 + ((i + 1) % N);
+    indices.push(0, a, b);
+  }
+
+  const geom = new BufferGeometry();
+  geom.setAttribute("position", new Float32BufferAttribute(positions, 3));
+  geom.setIndex(indices);
+  geom.computeVertexNormals();
+  return geom;
+}
+
 function buildBeachGeometry() {
-  const segments = 80;
-  const zStart = -320, zEnd = 280; // match sea length
-  const xLeft = -105; // overlaps sea
-  const xRight = -55; // base right edge — wider beach
+  const segments = 192;
+  const xStart = BEACH_X_LEFT;
+  const xEnd = BEACH_X_RIGHT;
+  const NEAR_OFFSET = 28; // gap between southernmost track edge and beach
+  const FALLBACK_NEAR = TRACK_BOUNDS.maxZ + NEAR_OFFSET;
 
   const positions: number[] = [];
   const indices: number[] = [];
 
   for (let i = 0; i <= segments; i++) {
     const t = i / segments;
-    const z = zStart + t * (zEnd - zStart);
+    const x = xStart + t * (xEnd - xStart);
     const wobble = Math.sin(t * Math.PI * 6) * 4 + Math.sin(t * Math.PI * 11) * 2 + Math.cos(t * Math.PI * 3.7) * 3;
 
-    // Left edge — straight (hidden under sea)
-    positions.push(xLeft, -0.48, z);
-    // Right edge — wavy (visible against grass)
-    positions.push(xRight + wobble, -0.48, z);
+    // Find southernmost track sample within a small horizontal window of `x`.
+    // That gives us a contour that follows the track's south edge.
+    let southZ = -Infinity;
+    const win = 60;
+    for (const s of TRACK_SAMPLES) {
+      if (Math.abs(s.x - x) > win) continue;
+      if (s.z > southZ) southZ = s.z;
+    }
+    const nearZ = (southZ === -Infinity ? FALLBACK_NEAR : southZ + NEAR_OFFSET) + wobble;
+    // Clamp so the beach never invades the sea plane area.
+    const beachNear = Math.min(nearZ, BEACH_Z_FAR - 8);
+
+    // Near edge (track side) — follows track contour
+    positions.push(x, -0.48, beachNear);
+    // Far edge (sea side) — straight (hidden under sea plane)
+    positions.push(x, -0.48, BEACH_Z_FAR);
 
     if (i < segments) {
       const base = i * 2;
@@ -836,14 +964,12 @@ function buildSkyDome() {
 
 /** Fluffy cloud built from overlapping spheres */
 function Cloud({ position, scale = 12 }: { position: [number, number, number]; scale?: number }) {
+  // Reduced from 7 to 4 puffs per cloud — same look at altitude, much less geometry.
   const puffs: [number, number, number, number][] = [
     [0,     0,     0,    1.0],
     [0.95, -0.1,   0.05, 0.75],
     [-0.9,  0.05,  0.1,  0.8],
-    [0.25,  0.35,  0.4,  0.6],
-    [-0.35, 0.3,  -0.35, 0.65],
-    [0.55, -0.2,  -0.3,  0.55],
-    [-0.55,-0.25,  0.3,  0.5],
+    [0.0,   0.32,  0.0,  0.62],
   ];
   return (
     <group position={position} scale={scale}>
@@ -989,6 +1115,45 @@ function Grandstand({ position, rotation = 0, length = 26 }:
   );
 }
 
+/** Tiny parked F1 — low body, front + rear wing, two side bargeboards. */
+function Bolide({ position, rotation = 0, color = "#dc0000", accent = "#0a0a0a" }:
+  { position: [number, number, number]; rotation?: number; color?: string; accent?: string }) {
+  return (
+    <group position={position} rotation={[0, rotation, 0]}>
+      {/* Main body */}
+      <mesh position={[0, 0.35, 0]} castShadow receiveShadow>
+        <boxGeometry args={[1.4, 0.45, 4.4]} />
+        <meshStandardMaterial color={color} roughness={0.4} metalness={0.2} />
+      </mesh>
+      {/* Cockpit hump */}
+      <mesh position={[0, 0.7, -0.2]} castShadow>
+        <boxGeometry args={[0.7, 0.35, 1.2]} />
+        <meshStandardMaterial color={accent} roughness={0.55} />
+      </mesh>
+      {/* Front wing */}
+      <mesh position={[0, 0.18, 2.0]} castShadow>
+        <boxGeometry args={[2.0, 0.12, 0.6]} />
+        <meshStandardMaterial color={accent} roughness={0.6} />
+      </mesh>
+      {/* Rear wing */}
+      <mesh position={[0, 0.95, -2.0]} castShadow>
+        <boxGeometry args={[1.6, 0.5, 0.5]} />
+        <meshStandardMaterial color={color} roughness={0.55} />
+      </mesh>
+      {/* Wheels */}
+      {[
+        [-0.85, 0.32, 1.4], [0.85, 0.32, 1.4],
+        [-0.85, 0.32, -1.4], [0.85, 0.32, -1.4],
+      ].map((p, i) => (
+        <mesh key={i} position={p as [number, number, number]} rotation={[0, 0, Math.PI / 2]} castShadow>
+          <cylinderGeometry args={[0.32, 0.32, 0.4, 12]} />
+          <meshStandardMaterial color="#1a1a1a" roughness={0.95} />
+        </mesh>
+      ))}
+    </group>
+  );
+}
+
 /** Colorful sponsor banner/board */
 function Banner({ position, rotation = 0, width = 4, color = "#e03040", accent = "#ffffff" }:
   { position: [number, number, number]; rotation?: number; width?: number; color?: string; accent?: string }) {
@@ -1018,93 +1183,679 @@ function Banner({ position, rotation = 0, width = 4, color = "#e03040", accent =
 
 const SKY_DOME_GEOM = buildSkyDome();
 
-// Palm tree positions — along the coast between beach and track
-const PALM_POSITIONS: [number, number, number][] = [
-  [-38, 0, -90], [-42, 0, -70], [-40, 0, -50], [-39, 0, -30], [-42, 0, -10],
-  [-40, 0, 10], [-38, 0, 30], [-42, 0, 50], [-40, 0, 70], [-38, 0, 90],
-  [-45, 0, 110], [-50, 0, 130], [-30, 0, 70], [-32, 0, 50], [-34, 0, 100],
-];
+// Node material for the dome — explicit so WebGPU picks up the colour
+// attribute uploaded onto SKY_DOME_GEOM via `vertexColor()`.
+const SKY_MATERIAL = (() => {
+  const m = new MeshBasicNodeMaterial();
+  m.colorNode = vertexColor();
+  m.side = BackSide;
+  m.depthWrite = false;
+  m.fog = false;
+  return m;
+})();
 
-// Yacht positions — scattered in sea near harbour
-const YACHT_POSITIONS: { pos: [number, number, number]; rot: number; scale: number; hull: string; accent: string; flag: string }[] = [
-  { pos: [-80,  -0.15, -40], rot: 0.3,  scale: 1.0,  hull: "#ffffff", accent: "#1a2540", flag: "#dc0000" },
-  { pos: [-95,  -0.15, -10], rot: -0.2, scale: 1.3,  hull: "#f5f5f5", accent: "#0a1628", flag: "#ffec00" },
-  { pos: [-72,  -0.15, 20],  rot: 0.5,  scale: 0.9,  hull: "#ffffff", accent: "#243044", flag: "#005aff" },
-  { pos: [-110, -0.15, 40],  rot: -0.4, scale: 1.5,  hull: "#ebebeb", accent: "#101820", flag: "#dc0000" },
-  { pos: [-85,  -0.15, 80],  rot: 0.2,  scale: 1.1,  hull: "#ffffff", accent: "#1a2540", flag: "#22c55e" },
-  { pos: [-100, -0.15, 120], rot: 0.8,  scale: 1.2,  hull: "#f8f8f8", accent: "#0a1628", flag: "#dc0000" },
-  { pos: [-130, -0.15, -60], rot: -0.3, scale: 1.4,  hull: "#ffffff", accent: "#243044", flag: "#ffec00" },
-  { pos: [-75,  -0.15, -75], rot: 0.6,  scale: 0.85, hull: "#f0f0f0", accent: "#1a2540", flag: "#005aff" },
-];
+// Palm tree positions — strung along the beach (south edge).
+const PALM_POSITIONS: [number, number, number][] = (() => {
+  const out: [number, number, number][] = [];
+  const count = 28;
+  for (let i = 0; i < count; i++) {
+    const t = i / (count - 1);
+    const x = BEACH_X_LEFT + 30 + t * (BEACH_X_RIGHT - BEACH_X_LEFT - 60);
+    const z = BEACH_Z_NEAR + 14 + ((i * 7) % 13) - 6;
+    out.push([x, 0, z]);
+  }
+  return out;
+})();
 
-// Cloud positions — scattered, high up, out of the track's way
-const CLOUD_POSITIONS: { pos: [number, number, number]; scale: number }[] = [
-  { pos: [-180, 140, -160], scale: 18 },
-  { pos: [ 160, 150, -220], scale: 15 },
-  { pos: [ 350, 145,  140], scale: 20 },
-  { pos: [-140, 160,  200], scale: 22 },
-  { pos: [ 240, 148, -120], scale: 16 },
-  { pos: [ 400, 135,  180], scale: 17 },
-  { pos: [-250, 155, -230], scale: 19 },
-  { pos: [ 200, 140,  250], scale: 18 },
-  { pos: [-220, 160,  160], scale: 16 },
-  { pos: [ 350, 150, -180], scale: 14 },
-];
+// Yacht positions — drifting in the inner harbour sea (inside the loop).
+// Each yacht hugs the inset water edge near a track sample, with its bow
+// pointing toward the centroid so the fleet looks moored along the quay.
+const YACHT_POSITIONS: { pos: [number, number, number]; rot: number; scale: number; hull: string; accent: string; flag: string }[] = (() => {
+  const palette = [
+    { hull: "#ffffff", accent: "#1a2540", flag: "#dc0000" },
+    { hull: "#f5f5f5", accent: "#0a1628", flag: "#ffec00" },
+    { hull: "#ffffff", accent: "#243044", flag: "#005aff" },
+    { hull: "#ebebeb", accent: "#101820", flag: "#dc0000" },
+    { hull: "#ffffff", accent: "#1a2540", flag: "#22c55e" },
+    { hull: "#f8f8f8", accent: "#0a1628", flag: "#dc0000" },
+    { hull: "#ffffff", accent: "#243044", flag: "#ffec00" },
+    { hull: "#f0f0f0", accent: "#1a2540", flag: "#005aff" },
+  ];
+  let cx = 0, cz = 0;
+  for (const s of TRACK_SAMPLES) { cx += s.x; cz += s.z; }
+  cx /= TRACK_SAMPLES.length;
+  cz /= TRACK_SAMPLES.length;
+
+  const out: { pos: [number, number, number]; rot: number; scale: number; hull: string; accent: string; flag: string }[] = [];
+  const count = 22;
+  const step = Math.max(1, Math.floor(TRACK_SAMPLES.length / count));
+  let idx = 0;
+  for (let i = 0; i < TRACK_SAMPLES.length && idx < count; i += step) {
+    const s = TRACK_SAMPLES[i]!;
+    const sNext = TRACK_SAMPLES[(i + 1) % TRACK_SAMPLES.length]!;
+    const tx = sNext.x - s.x;
+    const tz = sNext.z - s.z;
+    const tlen = Math.hypot(tx, tz) || 1;
+    let nxn = -tz / tlen;
+    let nzn = tx / tlen;
+    if (nxn * (s.x - cx) + nzn * (s.z - cz) > 0) {
+      nxn = -nxn;
+      nzn = -nzn;
+    }
+    const offset = 22 + ((idx * 7) % 18);
+    const px = s.x + nxn * offset;
+    const pz = s.z + nzn * offset;
+    const angle = Math.atan2(nxn, nzn);
+    const c = palette[idx % palette.length]!;
+    out.push({
+      pos: [px, -0.15, pz],
+      rot: angle + Math.PI / 2 + ((idx * 0.21) % 1) * 0.4 - 0.2,
+      scale: 0.9 + ((idx * 17) % 10) * 0.06,
+      hull: c.hull,
+      accent: c.accent,
+      flag: c.flag,
+    });
+    idx++;
+  }
+  return out;
+})();
+
+// Cloud positions — sprinkled high above the whole map (track + sea).
+const CLOUD_POSITIONS: { pos: [number, number, number]; scale: number }[] = (() => {
+  const out: { pos: [number, number, number]; scale: number }[] = [];
+  const count = 70;
+  const xMin = TRACK_BOUNDS.minX - 2000;
+  const xMax = TRACK_BOUNDS.maxX + 2000;
+  const zMin = TRACK_BOUNDS.minZ - 2000;
+  const zMax = TRACK_BOUNDS.maxZ + 2000;
+  for (let i = 0; i < count; i++) {
+    const x = xMin + ((i * 911) % (xMax - xMin));
+    const z = zMin + ((i * 1373) % (zMax - zMin));
+    out.push({
+      pos: [x, 240 + ((i * 17) % 140), z],
+      scale: 32 + ((i * 13) % 38),
+    });
+  }
+  return out;
+})();
 
 export default function Environment() {
   const beachGeom = useMemo(() => buildBeachGeometry(), []);
+  const innerSeaGeom = useMemo(() => buildInnerSeaGeometry(), []);
   const supportGeom = useMemo(() => buildSupportGeometry(), []);
+
+  // Suppress unused — we keep these around as the strategy evolves.
+  void beachGeom;
+  void innerSeaGeom;
+  void supportGeom;
+
+  // Track centroid + outward normals (computed once for all the local
+  // features below: beach segment, hill backdrop behind start, etc.).
+  const { centroid, outward } = useMemo(() => {
+    let cx = 0, cz = 0;
+    for (const s of TRACK_SAMPLES) { cx += s.x; cz += s.z; }
+    cx /= TRACK_SAMPLES.length;
+    cz /= TRACK_SAMPLES.length;
+    const n = TRACK_SAMPLES.length;
+    const out: { x: number; z: number }[] = [];
+    for (let i = 0; i < n; i++) {
+      const s = TRACK_SAMPLES[i]!;
+      const next = TRACK_SAMPLES[(i + 1) % n]!;
+      const tx = next.x - s.x;
+      const tz = next.z - s.z;
+      const tlen = Math.hypot(tx, tz) || 1;
+      let nx = -tz / tlen;
+      let nz = tx / tlen;
+      if (nx * (s.x - cx) + nz * (s.z - cz) < 0) {
+        nx = -nx;
+        nz = -nz;
+      }
+      out.push({ x: nx, z: nz });
+    }
+    return { centroid: { x: cx, z: cz }, outward: out };
+  }, []);
+
+  // BEACH SEGMENT — runs along the OUTER side of the track. Stretches
+  // from before the start straight, all the way past the tunnel and a
+  // bit further along that side. Sea sits beyond the beach.
+  const beachLocal = useMemo(() => {
+    // Beach + sea strip rides along the recorded SEA_POLYLINE, outward
+    // (away from track centroid). One vertex per polyline point on the
+    // inner edge, one on the outer — joined into a quad strip.
+    const positions: number[] = [];
+    const indices: number[] = [];
+    const seaPos: number[] = [];
+    const seaIdx: number[] = [];
+    const Y_BEACH = -0.25;
+    const Y_SEA = -0.55;
+    const INNER = 13;
+    const OUTER = 65;
+    const SEA_FAR = 1500; // sea reaches well past the horizon (fog handles fade)
+    // Clip sea reach if a building polyline point sits anywhere near the
+    // outward path. Wider corridor + bigger gap so the sea cleanly stops
+    // before the building zones.
+    const CORRIDOR_HALFWIDTH = 280;
+    const BUILDING_GAP = 80;
+    const buildingPts: XZ[] = BUILDING_POLYLINES.flat();
+
+    const pts = SEA_POLYLINE;
+    const trackPoly = TRACK_POINTS as { x: number; z: number }[];
+    // Reject beach/sea verts that land too close to ANY part of the road
+    // (the spline can fold back at hairpins so the local outward normal
+    // sometimes lands on a different stretch of track).
+    const ROAD_CLEAR = 18;
+    const tooCloseToTrack = (px: number, pz: number) => {
+      const min2 = ROAD_CLEAR * ROAD_CLEAR;
+      for (const ts of TRACK_SAMPLES) {
+        const dx = ts.x - px;
+        const dz = ts.z - pz;
+        if (dx * dx + dz * dz < min2) return true;
+      }
+      return false;
+    };
+    const TAPER_LEN = 18;
+    // Track per-point sea width so we can drop quads that would render as
+    // thin puddles instead of open water.
+    const seaWidth: number[] = [];
+    for (let i = 0; i < pts.length; i++) {
+      const p = pts[i]!;
+      const { ox, oz } = polyOutward(pts, i, centroid.x, centroid.z);
+      const distFromStart = i;
+      const distFromEnd = pts.length - 1 - i;
+      const taper = Math.min(1, Math.min(distFromStart, distFromEnd) / TAPER_LEN);
+      // Clip beach outer too: if it lands inside the loop OR clips a road
+      // sample, shorten it. Below we step back from the candidate outward
+      // distance until both checks pass.
+      let beachOuter = OUTER;
+      while (beachOuter > INNER + 2) {
+        const tx = p.x + ox * beachOuter;
+        const tz = p.z + oz * beachOuter;
+        if (!pointInPolyXZ(tx, tz, trackPoly) && !tooCloseToTrack(tx, tz)) break;
+        beachOuter -= 4;
+      }
+      if (beachOuter < INNER + 2) beachOuter = INNER + 2;
+      let reach = beachOuter + 8 + (SEA_FAR - beachOuter - 8) * taper;
+      // Clip if a building polyline point sits in the outward corridor.
+      for (const bp of buildingPts) {
+        const dx = bp.x - p.x;
+        const dz = bp.z - p.z;
+        const proj = dx * ox + dz * oz;
+        if (proj < beachOuter + 5 || proj > reach) continue;
+        const perp = Math.abs(dx * (-oz) + dz * ox);
+        if (perp < CORRIDOR_HALFWIDTH) {
+          const clipped = proj - BUILDING_GAP;
+          if (clipped < reach) reach = clipped;
+        }
+      }
+      // Walk reach back if the outer sea vertex lands inside the loop.
+      const STEP = 20;
+      for (let r = reach; r > beachOuter + 8; r -= STEP) {
+        const tx = p.x + ox * r;
+        const tz = p.z + oz * r;
+        if (!pointInPolyXZ(tx, tz, trackPoly)) {
+          reach = r;
+          break;
+        }
+        reach = beachOuter + 8;
+      }
+      if (reach < beachOuter + 8) reach = beachOuter + 8;
+      const wobble = Math.sin(i * 0.32) * 3;
+      positions.push(p.x + ox * INNER, Y_BEACH, p.z + oz * INNER);
+      positions.push(p.x + ox * (beachOuter + wobble), Y_BEACH, p.z + oz * (beachOuter + wobble));
+      seaPos.push(p.x + ox * (beachOuter + wobble), Y_SEA, p.z + oz * (beachOuter + wobble));
+      seaPos.push(p.x + ox * reach, Y_SEA, p.z + oz * reach);
+      seaWidth.push(reach - (beachOuter + wobble));
+    }
+    const MIN_SEA_WIDTH = 35;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const a = i * 2;
+      indices.push(a, a + 2, a + 1, a + 1, a + 2, a + 3);
+      // Drop sea quads where either end is a thin sliver (reads as a puddle).
+      if (seaWidth[i]! >= MIN_SEA_WIDTH && seaWidth[i + 1]! >= MIN_SEA_WIDTH) {
+        seaIdx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3);
+      }
+    }
+
+    const beach = new BufferGeometry();
+    beach.setAttribute("position", new Float32BufferAttribute(positions, 3));
+    beach.setIndex(indices);
+    beach.computeVertexNormals();
+    const sea = new BufferGeometry();
+    sea.setAttribute("position", new Float32BufferAttribute(seaPos, 3));
+    sea.setIndex(seaIdx);
+    sea.computeVertexNormals();
+    return { beachGeom: beach, seaGeom: sea };
+  }, [centroid]);
+
+  // Yachts moored in the sea strip — sampled along the polyline.
+  const yachts = useMemo(() => {
+    const palette = [
+      { hull: "#ffffff", accent: "#1a2540", flag: "#dc0000" },
+      { hull: "#f5f5f5", accent: "#0a1628", flag: "#ffec00" },
+      { hull: "#ffffff", accent: "#243044", flag: "#005aff" },
+      { hull: "#ebebeb", accent: "#101820", flag: "#dc0000" },
+      { hull: "#ffffff", accent: "#1a2540", flag: "#22c55e" },
+    ];
+    const out: { pos: [number, number, number]; rot: number; scale: number; hull: string; accent: string; flag: string }[] = [];
+    const pts = SEA_POLYLINE;
+    // Reject any yacht placement near a building polyline point or near
+    // any track sample (hairpin folds can put outward direction on the
+    // building side / on top of the road).
+    const buildingPts: XZ[] = BUILDING_POLYLINES.flat();
+    const farFromBuildings = (px: number, pz: number) => {
+      const min2 = 140 * 140;
+      for (const bp of buildingPts) {
+        const dx = bp.x - px;
+        const dz = bp.z - pz;
+        if (dx * dx + dz * dz < min2) return false;
+      }
+      return true;
+    };
+    const farFromRoad = (px: number, pz: number) => {
+      const min2 = 60 * 60;
+      for (const ts of TRACK_SAMPLES) {
+        const dx = ts.x - px;
+        const dz = ts.z - pz;
+        if (dx * dx + dz * dz < min2) return false;
+      }
+      return true;
+    };
+    const stride = 6;
+    let yi = 0;
+    for (let i = 0; i < pts.length; i += stride) {
+      const p = pts[i]!;
+      const { ox, oz } = polyOutward(pts, i, centroid.x, centroid.z);
+      const lanes = [85, 145, 215];
+      const lane = lanes[yi % 3]!;
+      const offset = lane + ((yi * 31) % 60);
+      const px = p.x + ox * offset;
+      const pz = p.z + oz * offset;
+      if (!farFromBuildings(px, pz)) { yi++; continue; }
+      if (!farFromRoad(px, pz)) { yi++; continue; }
+      const angle = Math.atan2(ox, oz);
+      const c = palette[yi % palette.length]!;
+      out.push({
+        pos: [px, -0.15, pz],
+        rot: angle + Math.PI / 2 + ((yi * 0.21) % 1) * 0.4 - 0.2,
+        scale: 1.0 + ((yi * 17) % 10) * 0.07,
+        hull: c.hull,
+        accent: c.accent,
+        flag: c.flag,
+      });
+      yi++;
+    }
+    return out;
+  }, [centroid]);
+
+  // Palms along the beach — strung along the recorded sea polyline.
+  const beachFlora = useMemo(() => {
+    const palms: { pos: [number, number, number]; scale: number }[] = [];
+    const pts = SEA_POLYLINE;
+    const stride = 5;
+    let pi = 0;
+    for (let i = 0; i < pts.length; i += stride) {
+      const p = pts[i]!;
+      const { ox, oz, tx, tz } = polyOutward(pts, i, centroid.x, centroid.z);
+      const radial = 22 + ((pi * 13) % 9);
+      const lateral = (((pi * 17) % 7) - 3) * 0.6;
+      const tlen = Math.hypot(tx, tz) || 1;
+      palms.push({
+        pos: [
+          p.x + ox * radial + (-tx / tlen) * lateral,
+          -0.25,
+          p.z + oz * radial + (-tz / tlen) * lateral,
+        ],
+        scale: 0.9 + ((pi * 7) % 6) * 0.08,
+      });
+      pi++;
+    }
+    return { palms };
+  }, [centroid]);
+
+  // GREEN HILLS BEHIND START — start spawn is at SPAWN_T=0.78. Behind it
+  // (further along outward normal) we put a wide rolling green hill base
+  // with a city stepping up toward the hill ridge. This gives the player
+  // a beautiful green backdrop on the start straight.
+  const startBackdrop = useMemo(() => {
+    // Buildings + skyscrapers march along every recorded BUILDING_POLYLINE.
+    // For each polyline point we drop up to four rows of buildings stepping
+    // outward (away from track centroid), plus a sparse row of glassy
+    // skyscrapers further behind.
+    const hills: never[] = []; // hills removed — kept for return-shape compatibility
+
+    // Monaco-style amphitheatre — four rows of buildings stepping up away
+    // from the road. Closest row is short old-town with tile roofs, then
+    // increasing rows of taller flat-roofed apartment blocks (the
+    // characteristic stacked Monaco silhouette).
+    const colorsLight = [
+      "#f4ecd8", "#ece4cd", "#f2dcc0", "#e8d6b0", "#f0e7d0",
+      "#e6c98d", "#d9b984", "#efc89a", "#f2c8a8", "#e8b59a",
+      "#dbb392", "#f5d6b8", "#e1a484",
+    ];
+    const colorsAccent = ["#c87a5e", "#b85a44", "#9a3a30"]; // occasional red/terracotta block
+    const colorsRoof = ["#c66a4a", "#b35a3a", "#a84a30", "#8b3a22", "#cf7e4a"];
+    const PERIMETER_TEXTURES: CanvasTexture[] = [
+      ...FACADE_TEXTURES,
+      ...GRAND_TEXTURES,
+      ...GOLD_TEXTURES,
+      ...MODERN_TERRACED_TEXTURES,
+    ];
+    const buildings: {
+      pos: [number, number, number];
+      size: [number, number, number];
+      rot: number;
+      color: string;
+      roof: string;
+      roofType: "cone" | "flat";
+      tex: CanvasTexture;
+    }[] = [];
+    // Each row: { radial, widthMin, widthRange, heightMin, heightRange, depthMin, depthRange, coneRoofChance }
+    const rows = [
+      { radial: 30, wMin: 7,  wRange: 5, hMin: 12, hRange: 14, dMin: 7, dRange: 4, coneChance: 0.7 },
+      { radial: 42, wMin: 10, wRange: 6, hMin: 22, hRange: 18, dMin: 9, dRange: 4, coneChance: 0.2 },
+      { radial: 56, wMin: 12, wRange: 7, hMin: 35, hRange: 22, dMin: 11, dRange: 5, coneChance: 0.05 },
+      { radial: 72, wMin: 14, wRange: 8, hMin: 48, hRange: 26, dMin: 13, dRange: 6, coneChance: 0.0 },
+    ];
+    const ROAD_CLEARANCE = 14;
+    const tooCloseToRoad = (px: number, pz: number, halfFoot: number) => {
+      const minDist = ROAD_CLEARANCE + halfFoot;
+      const minDist2 = minDist * minDist;
+      for (const ts of TRACK_SAMPLES) {
+        const dx = ts.x - px;
+        const dz = ts.z - pz;
+        if (dx * dx + dz * dz < minDist2) return true;
+      }
+      return false;
+    };
+
+    // Walk every recorded building polyline. `seedBase` keeps building
+    // ids unique across polylines so colour/texture cycles don't desync.
+    let seedBase = 0;
+    const skyscrapers: { pos: [number, number, number]; size: [number, number, number]; rot: number; tex: CanvasTexture }[] = [];
+    const mountains: { pos: [number, number, number]; radius: number; height: number; color: string }[] = [];
+    // Greenish-grey palette — Monaco/Côte d'Azur backdrop mountains.
+    const mountainColors = ["#6f7d5b", "#7a8965", "#5e6c4d", "#85947a", "#6b7568", "#7c8b7a"];
+    // Spawn (start line) world xz — buildings near here use a tighter
+    // stride so the start straight reads as a denser, real-feeling city.
+    const spawnPt = _elCurve.getPointAt(0.78);
+    const NEAR_START_R2 = 260 * 260;
+    for (const polyline of BUILDING_POLYLINES) {
+      // Default stride is sparse for perf; near the start it tightens
+      // so the player sees a denser city block at the grid.
+      for (let i = 0; i < polyline.length; i++) {
+        const p = polyline[i]!;
+        const dxs = p.x - spawnPt.x;
+        const dzs = p.z - spawnPt.z;
+        const isNearStart = (dxs * dxs + dzs * dzs) < NEAR_START_R2;
+        const stride = isNearStart ? 2 : 5;
+        if (i % stride !== 0) continue;
+        const { ox, oz, tx, tz } = polyOutward(polyline, i, centroid.x, centroid.z);
+        const yaw = Math.atan2(tx, tz);
+        const jitter = (((i * 7) % 9) - 4) * 0.6;
+        // Limit to 3 rows (was 4). Back row was sparse anyway.
+        const rowsToUse = Math.min(3, rows.length);
+        for (let r = 0; r < rowsToUse; r++) {
+          const row = rows[r]!;
+          // Sparse back row except near the start, where we keep every
+          // anchor for a denser city silhouette.
+          if (r >= 2 && !isNearStart && (i % 4) !== 0) continue;
+          const seed = seedBase + i * 31 + r * 13;
+          const fx = p.x + ox * row.radial;
+          const fz = p.z + oz * row.radial;
+          const w = row.wMin + (seed % row.wRange);
+          const d = row.dMin + ((seed * 7) % row.dRange);
+          const h = row.hMin + ((seed * 11) % row.hRange);
+          const px = fx + (-oz) * jitter;
+          const pz = fz + ox * jitter;
+          const halfFoot = Math.max(w, d) / 2;
+          if (tooCloseToRoad(px, pz, halfFoot)) continue;
+          const isAccent = (seed % 17) === 0;
+          const color = isAccent
+            ? colorsAccent[seed % colorsAccent.length]!
+            : colorsLight[seed % colorsLight.length]!;
+          const roofType: "cone" | "flat" =
+            ((seed * 13) % 100) / 100 < row.coneChance ? "cone" : "flat";
+          buildings.push({
+            pos: [px, h / 2, pz],
+            size: [w, h, d],
+            rot: yaw,
+            color,
+            roof: colorsRoof[seed % colorsRoof.length]!,
+            roofType,
+            tex: PERIMETER_TEXTURES[seed % PERIMETER_TEXTURES.length]!,
+          });
+        }
+      }
+
+      // Skyscrapers — sparse glassy towers sitting deep behind the
+      // building rows on this polyline.
+      for (let i = 0; i < polyline.length; i += 22) {
+        const p = polyline[i]!;
+        const { ox, oz, tx, tz } = polyOutward(polyline, i, centroid.x, centroid.z);
+        const yaw = Math.atan2(tx, tz);
+        const radial = 120 + ((i * 7) % 28);
+        const w = 14 + ((i * 11) % 9);
+        const d = 14 + ((i * 13) % 9);
+        const h = 32 + ((i * 19) % 38);
+        const px = p.x + ox * radial;
+        const pz = p.z + oz * radial;
+        const halfFoot = Math.max(w, d) / 2;
+        if (tooCloseToRoad(px, pz, halfFoot)) continue;
+        skyscrapers.push({
+          pos: [px, h / 2, pz],
+          size: [w, h, d],
+          rot: yaw,
+          tex: GLASS_TOWER_TEXTURES[(seedBase + i) % GLASS_TOWER_TEXTURES.length]!,
+        });
+      }
+      // Mountain massif — each anchor spawns a main peak plus 1–2 smaller
+      // side peaks so the silhouette reads as a natural ridge rather than
+      // a single pyramid. Skipped wherever the sea polyline is in the
+      // outward path so mountains never end up rising out of the water.
+      const seaPts: XZ[] = SEA_POLYLINE;
+      const SEA_REJECT = 220;
+      const isOverSea = (px: number, pz: number) => {
+        for (const sp of seaPts) {
+          const dx = sp.x - px;
+          const dz = sp.z - pz;
+          if (dx * dx + dz * dz < SEA_REJECT * SEA_REJECT) return true;
+        }
+        return false;
+      };
+      // One massif every ~24 polyline points (much sparser than before).
+      // Each massif = a main peak plus 3–4 satellite peaks clustered close
+      // together so the silhouette reads as one big chunky range, not a
+      // line of small cones.
+      for (let i = 0; i < polyline.length; i += 50) {
+        const p = polyline[i]!;
+        const { ox, oz } = polyOutward(polyline, i, centroid.x, centroid.z);
+        const seed = seedBase + i * 17;
+        const radial = 260 + ((seed * 13) % 130);
+        const lateral = (((seed * 23) % 100) - 50);
+        const height = 150 + ((seed * 31) % 180);
+        const radius = 95 + ((seed * 41) % 80);
+        const cx = p.x + ox * radial + (-oz) * lateral;
+        const cz = p.z + oz * radial + ox * lateral;
+        if (tooCloseToRoad(cx, cz, radius)) continue;
+        if (isOverSea(cx, cz)) continue;
+        const color = mountainColors[seed % mountainColors.length]!;
+        mountains.push({ pos: [cx, height / 2 - 1.2, cz], radius, height, color });
+        const sideCount = 3 + (seed % 2); // 3 or 4 satellites
+        for (let s = 0; s < sideCount; s++) {
+          const a = (s / sideCount) * Math.PI * 2 + (seed * 0.011);
+          const off = radius * (0.5 + ((seed * (s + 7)) % 25) / 100);
+          const sx = cx + Math.cos(a) * off;
+          const sz = cz + Math.sin(a) * off;
+          if (tooCloseToRoad(sx, sz, radius * 0.55)) continue;
+          if (isOverSea(sx, sz)) continue;
+          const sh = height * (0.55 + ((seed * (s + 3)) % 35) / 100);
+          const sr = radius * (0.55 + ((seed * (s + 5)) % 30) / 100);
+          mountains.push({
+            pos: [sx, sh / 2 - 1.2, sz],
+            radius: sr,
+            height: sh,
+            color: mountainColors[(seed + s + 2) % mountainColors.length]!,
+          });
+        }
+      }
+      seedBase += polyline.length * 100;
+    }
+
+    return { hills, buildings, skyscrapers, mountains };
+  }, [centroid]);
+
+  // PADDOCK FOLLOWING THE TRACK — walk every Nth spline sample and place
+  // a parked car offset INWARD toward the loop centroid. The row of cars
+  // (and garages further inward, grandstands deeper still) curves with
+  // the racing line.
+  const paddock = useMemo(() => {
+    const trackPoly = TRACK_POINTS as { x: number; z: number }[];
+    const bolideColors = [
+      "#dc0000", "#1f3fff", "#ffec00", "#ff7a00", "#22c55e",
+      "#9b30ff", "#00b4d8", "#ff3a8c", "#ffffff", "#0a0a0a",
+    ];
+    const garageColors = ["#dc0000", "#1f3fff", "#ffec00", "#222", "#ffffff"];
+    const bolides: { pos: [number, number, number]; rot: number; color: string; accent: string }[] = [];
+    const garages: { pos: [number, number, number]; rot: number; w: number; d: number; h: number; color: string }[] = [];
+    const stands: { pos: [number, number, number]; rot: number; length: number }[] = [];
+
+    const ROAD_CLEARANCE = 16;
+    const tooClose = (x: number, z: number) => {
+      const min2 = ROAD_CLEARANCE * ROAD_CLEARANCE;
+      for (const ts of TRACK_SAMPLES) {
+        const dx = ts.x - x;
+        const dz = ts.z - z;
+        if (dx * dx + dz * dz < min2) return true;
+      }
+      return false;
+    };
+
+    const inwardAt = (i: number) => {
+      const s = TRACK_SAMPLES[i]!;
+      const next = TRACK_SAMPLES[(i + 4) % TRACK_SAMPLES.length]!;
+      const tx = next.x - s.x;
+      const tz = next.z - s.z;
+      let nx = -tz;
+      let nz = tx;
+      // Flip toward centroid (inward).
+      if (nx * (s.x - centroid.x) + nz * (s.z - centroid.z) > 0) {
+        nx = -nx; nz = -nz;
+      }
+      const len = Math.hypot(nx, nz) || 1;
+      return { ix: nx / len, iz: nz / len, tx, tz, x: s.x, z: s.z };
+    };
+
+    const N = TRACK_SAMPLES.length;
+    const CAR_RADIAL = 18;
+    const GARAGE_RADIAL = 30;
+    const STAND_RADIAL = 60;
+    // Strides chosen to keep startup fast — each parked car is a full GLB
+    // clone with its own material set, so 50× hurts. Aim for ~12 cars.
+    const CAR_STRIDE = 24;
+    const GARAGE_STRIDE = 16;
+    const STAND_STRIDE = 60;
+
+    for (let i = 0; i < N; i += CAR_STRIDE) {
+      const o = inwardAt(i);
+      const px = o.x + o.ix * CAR_RADIAL;
+      const pz = o.z + o.iz * CAR_RADIAL;
+      if (!pointInPolyXZ(px, pz, trackPoly)) continue;
+      if (tooClose(px, pz)) continue;
+      const tangentYaw = Math.atan2(o.tx, o.tz);
+      const c = bolideColors[i % bolideColors.length]!;
+      bolides.push({ pos: [px, 0, pz], rot: tangentYaw, color: c, accent: "#0a0a0a" });
+    }
+
+    for (let i = 0; i < N; i += GARAGE_STRIDE) {
+      const o = inwardAt(i);
+      const gx = o.x + o.ix * GARAGE_RADIAL;
+      const gz = o.z + o.iz * GARAGE_RADIAL;
+      if (!pointInPolyXZ(gx, gz, trackPoly)) continue;
+      if (tooClose(gx, gz)) continue;
+      const tangentYaw = Math.atan2(o.tx, o.tz);
+      garages.push({
+        pos: [gx, 0, gz],
+        rot: tangentYaw,
+        w: 7.2,
+        d: 5.6,
+        h: 4.2,
+        color: garageColors[i % garageColors.length]!,
+      });
+    }
+
+    for (let i = 0; i < N; i += STAND_STRIDE) {
+      const o = inwardAt(i);
+      // Walk inward in steps until the candidate is well inside the loop
+      // and clear of any other road segment (hairpin folds).
+      let r = STAND_RADIAL;
+      let sx = o.x + o.ix * r;
+      let sz = o.z + o.iz * r;
+      let attempts = 0;
+      while (
+        attempts < 6 &&
+        (!pointInPolyXZ(sx, sz, trackPoly) || tooClose(sx, sz))
+      ) {
+        r -= 8;
+        sx = o.x + o.ix * r;
+        sz = o.z + o.iz * r;
+        attempts++;
+      }
+      if (!pointInPolyXZ(sx, sz, trackPoly) || tooClose(sx, sz)) continue;
+      // Verify both endpoints of the grandstand footprint are inside the
+      // loop AND clear of the road, so the box doesn't poke onto the track.
+      const tangentYaw = Math.atan2(o.tx, o.tz);
+      const length = 30;
+      const halfL = length / 2;
+      const cx = Math.cos(tangentYaw);
+      const cz = Math.sin(tangentYaw);
+      const ex1 = sx + cx * halfL;
+      const ez1 = sz + cz * halfL;
+      const ex2 = sx - cx * halfL;
+      const ez2 = sz - cz * halfL;
+      if (!pointInPolyXZ(ex1, ez1, trackPoly) || tooClose(ex1, ez1)) continue;
+      if (!pointInPolyXZ(ex2, ez2, trackPoly) || tooClose(ex2, ez2)) continue;
+      stands.push({
+        pos: [sx, 0, sz],
+        rot: tangentYaw - Math.PI / 2,
+        length,
+      });
+    }
+
+    return { bolides, stands, garages };
+  }, [centroid]);
 
   return (
     <>
-      {/* Procedural sky dome — gradient via vertex colors */}
-      <mesh geometry={SKY_DOME_GEOM} frustumCulled={false}>
-        <meshBasicMaterial vertexColors side={BackSide} depthWrite={false} fog={false} />
-      </mesh>
-
-      {/* Sun disc */}
-      <mesh position={SUN_POS}>
-        <sphereGeometry args={[10, 32, 32]} />
-        <meshBasicMaterial color="#ffee00" depthWrite={false} />
-      </mesh>
+      <color attach="background" args={["#bcd9ec"]} />
+      <fog attach="fog" args={["#bcd9ec", 1500, 9000]} />
 
       {/* Lighting */}
-      <directionalLight position={SUN_POS} intensity={2.5} castShadow color="#fff5d0" />
-      <ambientLight intensity={0.4} />
+      <directionalLight position={SUN_POS} intensity={2.2} color="#fff5d0" />
+      <ambientLight intensity={0.55} />
 
-      {/* Procedural clouds */}
+      {/* Clouds — sprinkled high above the whole map */}
       {CLOUD_POSITIONS.map((c, i) => (
-        <Cloud key={i} position={c.pos} scale={c.scale} />
+        <Cloud key={`cloud-${i}`} position={c.pos} scale={c.scale} />
       ))}
 
-      {/* Ground — urban/concrete like Monaco */}
-      <mesh receiveShadow rotation-x={-Math.PI / 2} position={[0, -0.5, 0]}>
-        <planeGeometry args={[600, 600]} />
-        <meshStandardMaterial color="#707060" />
+      {/* Ground — covers the whole map. Pushed well below the sea/beach
+          layers so the depth buffer can cleanly separate them at distance
+          (otherwise the sea flickers / z-fights with the ground). */}
+      <mesh receiveShadow rotation-x={-Math.PI / 2} position={[0, -1.5, 0]}>
+        <planeGeometry args={[5000, 5000]} />
+        <meshStandardMaterial color="#7c8a5e" roughness={0.95} />
       </mesh>
 
-      {/* Beach — wavy edge against grass */}
-      <mesh geometry={beachGeom}>
-        <meshStandardMaterial color="#d4b483" />
+      {/* Local beach segment + sea — only just before the tunnel */}
+      <mesh geometry={beachLocal.beachGeom}>
+        <meshStandardMaterial color="#e3c79a" roughness={0.95} side={DoubleSide} />
+      </mesh>
+      <mesh geometry={beachLocal.seaGeom}>
+        <meshStandardMaterial color="#1f6c8a" roughness={0.4} metalness={0.06} side={DoubleSide} />
       </mesh>
 
-      {/* Sea — starts after beach, extends to horizon */}
-      <mesh rotation-x={-Math.PI / 2} position={[-350, -0.3, -20]}>
-        <planeGeometry args={[500, 600]} />
-        <meshStandardMaterial color="#1a6b8a" />
-      </mesh>
-      <mesh rotation-x={-Math.PI / 2} position={[-300, -0.3, 100]}>
-        <planeGeometry args={[400, 300]} />
-        <meshStandardMaterial color="#1a6b8a" />
-      </mesh>
-
-      {/* Palm trees along the coast */}
-      {PALM_POSITIONS.map((p, i) => (
-        <PalmTree key={`palm-${i}`} position={p} scale={0.9 + (i % 3) * 0.15} />
-      ))}
-
-      {/* Yachts in the harbour */}
-      {YACHT_POSITIONS.map((y, i) => (
+      {/* Yachts in the local sea */}
+      {yachts.map((y, i) => (
         <Yacht
           key={`yacht-${i}`}
           position={y.pos}
@@ -1116,111 +1867,141 @@ export default function Environment() {
         />
       ))}
 
-      {/* Grandstands along start/finish straight */}
-      <Grandstand position={[-5, 0, -10]} rotation={-Math.PI / 2} length={28} />
-      <Grandstand position={[-5, 0, 30]} rotation={-Math.PI / 2} length={28} />
+      {/* Palms lining the beach */}
+      {beachFlora.palms.map((p, i) => (
+        <PalmTree key={`palm-${i}`} position={p.pos} scale={p.scale} />
+      ))}
 
-      {/* Colourful sponsor banners along the guardrails near start/finish */}
-      {Array.from({ length: 8 }).map((_, i) => {
-        const colors = [
-          ["#e23030", "#ffffff"],
-          ["#f0c040", "#000000"],
-          ["#3050e0", "#ffffff"],
-          ["#20a050", "#ffffff"],
-          ["#ff7020", "#000000"],
-          ["#e0e0e0", "#e23030"],
-        ];
-        const [c, a] = colors[i % colors.length]!;
-        return (
-          <Banner
-            key={`banner-a-${i}`}
-            position={[-13.5, 1.8, -30 + i * 9]}
-            rotation={Math.PI / 2}
-            width={7}
-            color={c!}
-            accent={a!}
-          />
-        );
-      })}
-      {Array.from({ length: 8 }).map((_, i) => {
-        const colors = [
-          ["#3050e0", "#ffffff"],
-          ["#e23030", "#ffffff"],
-          ["#20a050", "#f0c040"],
-          ["#f0c040", "#e23030"],
-          ["#9040c0", "#ffffff"],
-          ["#ff7020", "#ffffff"],
-        ];
-        const [c, a] = colors[i % colors.length]!;
-        return (
-          <Banner
-            key={`banner-b-${i}`}
-            position={[-31.5, 1.8, -30 + i * 9]}
-            rotation={-Math.PI / 2}
-            width={7}
-            color={c!}
-            accent={a!}
-          />
-        );
-      })}
 
-      {/* Monaco city */}
-      {CITY.map((b, i) => {
-        const classicTex = [...FACADE_TEXTURES, ...GOLD_TEXTURES, ...GRAND_TEXTURES];
-        const tex = b.type === "tower"
-          ? (i % 2 === 0 ? MODERN_TERRACED_TEXTURES[i % MODERN_TERRACED_TEXTURES.length] : TOWER_TEXTURES[i % TOWER_TEXTURES.length])
-          : classicTex[i % classicTex.length];
+      {/* Town stepping up toward the hills, behind the start */}
+      {startBackdrop.buildings.map((b, i) => {
         const [w, h, d] = b.size;
-        return b.mansard ? (
-          <group key={i} position={b.pos}>
+        return (
+          <group key={`bld-${i}`} position={b.pos} rotation={[0, b.rot, 0]}>
             <mesh castShadow receiveShadow>
               <boxGeometry args={[w, h, d]} />
-              <meshStandardMaterial map={tex} />
+              <meshStandardMaterial map={b.tex} color={b.color} roughness={0.85} />
             </mesh>
-            <mesh position={[0, h / 2 + 0.25, 0]}>
-              <boxGeometry args={[w + 0.4, 0.5, d + 0.4]} />
-              <meshStandardMaterial color="#c8bea8" />
-            </mesh>
-            <mesh position={[0, h / 2 + 0.9, 0]} castShadow>
-              <boxGeometry args={[w * 0.7, 0.8, d * 0.7]} />
-              <meshStandardMaterial color="#4a5a6a" />
-            </mesh>
+            {b.roofType === "cone" ? (
+              <mesh position={[0, h / 2 + 0.55, 0]} rotation={[0, Math.PI / 4, 0]} castShadow>
+                <coneGeometry args={[(Math.max(w, d) / 2) * 0.95, 1.1, 4]} />
+                <meshStandardMaterial color={b.roof} roughness={0.8} />
+              </mesh>
+            ) : (
+              <mesh position={[0, h / 2 + 0.18, 0]} castShadow>
+                <boxGeometry args={[w + 0.4, 0.36, d + 0.4]} />
+                <meshStandardMaterial color="#5a5048" roughness={0.85} />
+              </mesh>
+            )}
           </group>
-        ) : (
-          <mesh key={i} position={b.pos} castShadow receiveShadow>
-            <boxGeometry args={[w, h, d]} />
-            <meshStandardMaterial map={tex} />
-          </mesh>
         );
       })}
 
-      {/* Tunnel — along start/finish straight near beach (z=-30 to z=40) */}
-      <group>
-        <mesh position={[-22.5, 8, 5]} castShadow receiveShadow>
-          <boxGeometry args={[20, 1.5, 72]} />
-          <meshStandardMaterial color="#555555" />
-        </mesh>
-        <mesh position={[-33.5, 4, 5]}>
-          <boxGeometry args={[2, 9, 72]} />
-          <meshStandardMaterial color="#666666" />
-        </mesh>
-        <mesh position={[-11.5, 4, 5]}>
-          <boxGeometry args={[2, 9, 72]} />
-          <meshStandardMaterial color="#666666" />
-        </mesh>
-        <mesh position={[-22.5, 13, 5]} castShadow>
-          <boxGeometry args={[24, 8, 72]} />
-          <meshStandardMaterial color="#d4c4a8" />
-        </mesh>
-      </group>
+      {/* Paddock inside the loop — parked GLB cars + pit garages + grandstands */}
+      {paddock.bolides.map((b, i) => (
+        <group key={`bolide-${i}`} position={b.pos} rotation={[0, b.rot, 0]}>
+          <CarModel bodyColor={b.color} staticDecor />
+        </group>
+      ))}
+      {paddock.garages.map((g, i) => (
+        <group key={`garage-${i}`} position={g.pos} rotation={[0, g.rot, 0]}>
+          {/* Garage box */}
+          <mesh position={[0, g.h / 2, 0]} castShadow receiveShadow>
+            <boxGeometry args={[g.w, g.h, g.d]} />
+            <meshStandardMaterial color="#dadada" roughness={0.85} />
+          </mesh>
+          {/* Coloured roller-door front face */}
+          <mesh position={[0, g.h * 0.45, g.d / 2 + 0.02]} castShadow>
+            <boxGeometry args={[g.w * 0.86, g.h * 0.78, 0.06]} />
+            <meshStandardMaterial color={g.color} roughness={0.5} metalness={0.2} />
+          </mesh>
+          {/* Roof trim */}
+          <mesh position={[0, g.h + 0.18, 0]} castShadow>
+            <boxGeometry args={[g.w + 0.4, 0.36, g.d + 0.4]} />
+            <meshStandardMaterial color="#3a3a3a" roughness={0.9} />
+          </mesh>
+        </group>
+      ))}
+      {paddock.stands.map((s, i) => (
+        <Grandstand key={`stand-${i}`} position={s.pos} rotation={s.rot} length={s.length} />
+      ))}
 
-      {/* Track support — stone under elevated road, generated from spline */}
-      <mesh geometry={supportGeom}>
-        <meshStandardMaterial color="#606060" roughness={0.95} flatShading />
-      </mesh>
+      {/* Mountain backdrop — greenish-grey peaks rising behind the city
+          on the building side only (no mountains on the harbour side). */}
+      {startBackdrop.mountains.map((m, i) => {
+        // Mountain = wide frustum body + rounded low-poly dome on top.
+        // Avoids the sharp pyramid peak the cone produced.
+        const bodyH = m.height * 0.78;
+        const capR = m.radius * 0.36;
+        return (
+          <group key={`mountain-${i}`} position={m.pos}>
+            <mesh position={[0, -m.height * 0.11, 0]}>
+              <cylinderGeometry args={[capR, m.radius, bodyH, 12, 1]} />
+              <meshStandardMaterial color={m.color} roughness={1} flatShading />
+            </mesh>
+            <mesh position={[0, bodyH / 2 - m.height * 0.11, 0]}>
+              <sphereGeometry args={[capR, 10, 6]} />
+              <meshStandardMaterial color={m.color} roughness={1} flatShading />
+            </mesh>
+          </group>
+        );
+      })}
 
-      {/* Fog — white tint so clouds stay white */}
-      <fog attach="fog" args={["#f0f4f8", 200, 600]} />
+      {/* Skyscrapers up on the hills — sparse, glassy amber-window towers */}
+      {startBackdrop.skyscrapers.map((t, i) => (
+        <group key={`tower-${i}`} position={t.pos} rotation={[0, t.rot, 0]}>
+          <mesh>
+            <boxGeometry args={t.size} />
+            <meshStandardMaterial
+              map={t.tex}
+              emissiveMap={t.tex}
+              emissive="#7a4d18"
+              emissiveIntensity={0.25}
+              roughness={0.35}
+              metalness={0.45}
+            />
+          </mesh>
+          {/* Flat roof slab */}
+          <mesh position={[0, t.size[1] / 2 + 0.2, 0]}>
+            <boxGeometry args={[t.size[0] + 0.6, 0.4, t.size[2] + 0.6]} />
+            <meshStandardMaterial color="#3a3530" roughness={0.8} />
+          </mesh>
+        </group>
+      ))}
+
+      {/* Tunnel — covers a stretch of the spline so cars dive under a roof */}
+      {(() => {
+        const tunnelStart = 0.32;
+        const tunnelEnd = 0.40;
+        const tunnelSegs = 24;
+        const out: React.ReactNode[] = [];
+        for (let i = 0; i < tunnelSegs; i++) {
+          const t = tunnelStart + (i / tunnelSegs) * (tunnelEnd - tunnelStart);
+          const tNext = tunnelStart + ((i + 1) / tunnelSegs) * (tunnelEnd - tunnelStart);
+          const p = _elCurve.getPointAt(t);
+          const pNext = _elCurve.getPointAt(tNext);
+          const tan = _elCurve.getTangentAt(t);
+          const angle = Math.atan2(tan.x, tan.z);
+          const segLen = Math.hypot(pNext.x - p.x, pNext.z - p.z) + 0.5;
+          out.push(
+            <group key={`tun-${i}`} position={[p.x, 0, p.z]} rotation={[0, angle, 0]}>
+              <mesh position={[0, 7, 0]} castShadow>
+                <boxGeometry args={[TRACK_WIDTH + 6, 1.2, segLen]} />
+                <meshStandardMaterial color="#c8b896" roughness={0.85} />
+              </mesh>
+              <mesh position={[-(TRACK_WIDTH + 6) / 2 + 1, 3.4, 0]} castShadow>
+                <boxGeometry args={[2, 7, segLen]} />
+                <meshStandardMaterial color="#9a8870" roughness={0.9} />
+              </mesh>
+              <mesh position={[(TRACK_WIDTH + 6) / 2 - 1, 3.4, 0]} castShadow>
+                <boxGeometry args={[2, 7, segLen]} />
+                <meshStandardMaterial color="#9a8870" roughness={0.9} />
+              </mesh>
+            </group>,
+          );
+        }
+        return <>{out}</>;
+      })()}
     </>
   );
 }

@@ -18,7 +18,7 @@ export default function DebugCamera({ target }: DebugCameraProps) {
     controls.enableDamping = true;
     controls.dampingFactor = 0.08;
     controls.minDistance = 1;
-    controls.maxDistance = 200;
+    controls.maxDistance = 4000;
 
     // Centre orbit on the car at the moment debug turns on.
     const rb = target.current;

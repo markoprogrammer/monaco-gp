@@ -3,7 +3,7 @@ import { CatmullRomCurve3, BufferGeometry, Float32BufferAttribute, Vector3, Doub
 import { RigidBody, TrimeshCollider } from "@react-three/rapier";
 import { TRACK_POINTS, TRACK_WIDTH, GUARDRAIL_HEIGHT } from "../lib/track-data";
 
-const ROAD_SEGMENTS = 400;
+const ROAD_SEGMENTS = 800;
 
 interface EdgePoint {
   left: Vector3;
@@ -15,10 +15,33 @@ function computeEdges(curve: CatmullRomCurve3, segments: number, width: number):
   const halfWidth = width / 2;
   const edges: EdgePoint[] = [];
 
+  // Pre-compute raw tangents.
+  const rawTangents: Vector3[] = [];
+  for (let i = 0; i <= segments; i++) {
+    rawTangents.push(curve.getTangentAt(i / segments));
+  }
+
+  // Smooth the tangent at each sample by averaging with both neighbours.
+  // This dampens abrupt direction changes around tight corners so the
+  // perpendicular `right` vector — and therefore the guardrails — track
+  // the road continuously instead of pinching to a kink.
+  const smoothTangents: Vector3[] = [];
+  const SMOOTH_RADIUS = 3;
+  for (let i = 0; i <= segments; i++) {
+    let sx = 0, sz = 0;
+    for (let k = -SMOOTH_RADIUS; k <= SMOOTH_RADIUS; k++) {
+      const idx = ((i + k) % (segments + 1) + (segments + 1)) % (segments + 1);
+      sx += rawTangents[idx]!.x;
+      sz += rawTangents[idx]!.z;
+    }
+    const len = Math.hypot(sx, sz) || 1;
+    smoothTangents.push(new Vector3(sx / len, 0, sz / len));
+  }
+
   for (let i = 0; i <= segments; i++) {
     const t = i / segments;
     const point = curve.getPointAt(t);
-    const tangent = curve.getTangentAt(t);
+    const tangent = smoothTangents[i]!;
     const right = new Vector3(-tangent.z, 0, tangent.x).normalize();
 
     edges.push({
@@ -61,31 +84,34 @@ function buildRoadGeometry(edges: EdgePoint[]) {
   return geom;
 }
 
-function buildWallGeometry(edgePoints: Vector3[], height: number) {
+function buildWallGeometry(edgePoints: Vector3[], tangents: Vector3[], height: number) {
   const positions: number[] = [];
   const normals: number[] = [];
   const indices: number[] = [];
 
+  // Emit two stacked vertices per edge sample, then connect quads only when
+  // the next slice continues forward along the curve tangent. On the inside
+  // of a hairpin the inner edge collapses / reverses; skipping those quads
+  // keeps the guardrail from crossing the road as a stray triangle.
   for (let i = 0; i < edgePoints.length; i++) {
     const p = edgePoints[i]!;
-
-    // Bottom vertex
     positions.push(p.x, p.y, p.z);
-    normals.push(0, 0, 1); // will be overridden by DoubleSide
-    // Top vertex
+    normals.push(0, 0, 1);
     positions.push(p.x, p.y + height, p.z);
     normals.push(0, 0, 1);
-
-    if (i < edgePoints.length - 1) {
-      const base = i * 2;
-      // Both winding orders for double-sided collision
-      indices.push(base, base + 2, base + 1);
-      indices.push(base + 1, base + 2, base + 3);
-      // Reverse winding for trimesh collision from other side
-      indices.push(base, base + 1, base + 2);
-      indices.push(base + 1, base + 3, base + 2);
-    }
   }
+
+  for (let i = 0; i < edgePoints.length - 1; i++) {
+    const base = i * 2;
+    // Always emit the quad — keeps the rail continuous even where the
+    // inside edge bunches up around a tight corner. Slight self-overlap
+    // there is much less visually jarring than a gap.
+    indices.push(base, base + 2, base + 1);
+    indices.push(base + 1, base + 2, base + 3);
+    indices.push(base, base + 1, base + 2);
+    indices.push(base + 1, base + 3, base + 2);
+  }
+  void tangents;
 
   const geom = new BufferGeometry();
   geom.setAttribute("position", new Float32BufferAttribute(positions, 3));
@@ -201,21 +227,22 @@ function buildCenterLineGeometry(curve: CatmullRomCurve3, segments: number) {
 
 export default function Track() {
   const { roadGeometry, leftWallGeom, rightWallGeom, centerLineGeom, kerbGeom, startPosition, startRotation } = useMemo(() => {
-    const curve = new CatmullRomCurve3(TRACK_POINTS, true, "catmullrom", 0.5);
+    const curve = new CatmullRomCurve3(TRACK_POINTS, true, "centripetal", 0.5);
     const edges = computeEdges(curve, ROAD_SEGMENTS, TRACK_WIDTH);
     const roadGeom = buildRoadGeometry(edges);
 
     const leftPoints = edges.map((e) => e.left);
     const rightPoints = edges.map((e) => e.right);
+    const tangents = edges.map((e) => e.tangent);
 
-    const leftWall = buildWallGeometry(leftPoints, GUARDRAIL_HEIGHT);
-    const rightWall = buildWallGeometry(rightPoints, GUARDRAIL_HEIGHT);
+    const leftWall = buildWallGeometry(leftPoints, tangents, GUARDRAIL_HEIGHT);
+    const rightWall = buildWallGeometry(rightPoints, tangents, GUARDRAIL_HEIGHT);
 
     const centerLine = buildCenterLineGeometry(curve, ROAD_SEGMENTS);
     const kerb = buildKerbGeometry(curve, ROAD_SEGMENTS, TRACK_WIDTH);
 
-    const startPos = curve.getPointAt(0.29);
-    const startTangent = curve.getTangentAt(0.29);
+    const startPos = curve.getPointAt(0.77);
+    const startTangent = curve.getTangentAt(0.77);
     const startAngle = Math.atan2(startTangent.x, startTangent.z);
 
     return {
@@ -275,10 +302,6 @@ export default function Track() {
         <meshBasicMaterial color="#ffffff" />
       </mesh>
 
-      {/* Red/white kerbs at corner apexes */}
-      <mesh geometry={kerbGeom} receiveShadow>
-        <meshStandardMaterial vertexColors roughness={0.6} side={DoubleSide} />
-      </mesh>
 
       {/* Start/finish line — after tunnel exit, before Sainte Devote */}
       <group position={[startPosition.x, startPosition.y + 0.05, startPosition.z]} rotation={[0, startRotation, 0]}>

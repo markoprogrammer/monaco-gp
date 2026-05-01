@@ -115,7 +115,7 @@ export default function VibePortals({ carRef }: VibePortalsProps) {
   // at race start). Place them at modest lateral offsets so they sit on the
   // edge of the racing surface, visible but easy to avoid on a clean lap.
   const { exitPos, returnPos } = useMemo(() => {
-    const c = new CatmullRomCurve3(TRACK_POINTS, true, "catmullrom", 0.5);
+    const c = new CatmullRomCurve3(TRACK_POINTS, true, "centripetal", 0.5);
     const t = 0.20; // well behind spawn (SPAWN_T = 0.28) — only reached deliberately
     const p = c.getPointAt(t);
     const tan = c.getTangentAt(t);

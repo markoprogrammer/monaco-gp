@@ -1,7 +1,9 @@
-import { useRef, useCallback, useEffect, Suspense } from "react";
+import { useRef, useCallback, useEffect, Suspense, useMemo } from "react";
 import { Canvas } from "@react-three/fiber";
 import { Physics } from "@react-three/rapier";
 import type { RapierRigidBody } from "@react-three/rapier";
+import { WebGPURenderer } from "three/webgpu";
+import { WebGLRenderer, SRGBColorSpace, NoToneMapping } from "three";
 import Car from "./components/Car";
 import ChaseCamera from "./components/Camera";
 import DebugCamera from "./components/DebugCamera";
@@ -21,6 +23,9 @@ import SoundButton from "./components/SoundButton";
 import UsernameGate from "./components/UsernameGate";
 import LapSaver from "./components/LapSaver";
 import Leaderboard from "./components/Leaderboard";
+import MiniMap from "./components/MiniMap";
+import EnvLight from "./components/EnvLight";
+import StartLights from "./components/StartLights";
 // import VibePortals from "./components/VibePortals"; // disabled — leaderboard button is enough; can re-enable later
 import { initMultiplayer } from "./lib/multiplayer";
 import { useUserStore } from "./lib/user-store";
@@ -38,6 +43,42 @@ function Game() {
   const carRef = useRef<RapierRigidBody | null>(null);
   const username = useUserStore((s) => s.username);
 
+  // WebGPU is the default renderer; falls back to WebGL when the browser
+  // lacks WebGPU support or init fails. Pass `?webgl=1` to force WebGL.
+  const glFactory = useMemo(() => {
+    const forceWebGL =
+      typeof window !== "undefined" &&
+      new URLSearchParams(window.location.search).get("webgl") === "1";
+
+    return async (defaultProps: { canvas: HTMLCanvasElement | OffscreenCanvas }) => {
+      if (forceWebGL) {
+        // eslint-disable-next-line no-console
+        console.info("[renderer] WebGL forced via ?webgl=1");
+        return new WebGLRenderer({ ...defaultProps, antialias: true } as never);
+      }
+      const hasWebGPU = typeof navigator !== "undefined" && "gpu" in navigator;
+      if (hasWebGPU) {
+        try {
+          const renderer = new WebGPURenderer({ ...defaultProps, antialias: true } as never);
+          // Match the WebGL defaults R3F applies in v9 — without these the
+          // PBR materials look near-black under WebGPU because the colour
+          // pipeline defaults to linear in/out and tone mapping is off.
+          renderer.outputColorSpace = SRGBColorSpace;
+          renderer.toneMapping = NoToneMapping;
+          renderer.toneMappingExposure = 1.5;
+          await renderer.init();
+          // eslint-disable-next-line no-console
+          console.info("[renderer] WebGPU active");
+          return renderer;
+        } catch (err) {
+          // eslint-disable-next-line no-console
+          console.warn("[renderer] WebGPU init failed, falling back to WebGL", err);
+        }
+      }
+      return new WebGLRenderer({ ...defaultProps, antialias: true } as never);
+    };
+  }, []);
+
   const onCarReady = useCallback((rb: RapierRigidBody) => {
     carRef.current = rb;
   }, []);
@@ -54,9 +95,14 @@ function Game() {
 
   return (
     <>
-      <Canvas shadows dpr={[1, 2]} camera={{ position: [0, 10, 20], fov: 60 }}>
+      <Canvas
+        dpr={[1, 1.75]}
+        camera={{ position: [0, 10, 20], fov: 60, near: 0.5, far: 14000 }}
+        gl={glFactory as never}
+      >
         <Environment />
-        <Physics gravity={[0, -9.81, 0]}>
+        <EnvLight />
+        <Physics gravity={[0, -9.81, 0]} interpolate timeStep={1 / 90}>
           <Suspense fallback={null}>
             <Car onReady={onCarReady} />
             <RemotePlayers />
@@ -79,6 +125,8 @@ function Game() {
       <SoundButton />
       <Leaderboard />
       <LapSaver />
+      <MiniMap />
+      <StartLights />
     </>
   );
 }

@@ -1,11 +1,11 @@
-import { useMemo, useRef, type RefObject } from "react";
+import { useEffect, useMemo, useRef, type RefObject } from "react";
 import { useLoader, useFrame } from "@react-three/fiber";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { toCreasedNormals } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import {
   Color,
   Mesh,
-  MeshPhysicalMaterial,
+  MeshPhysicalMaterial as WebGLMeshPhysicalMaterial,
   MeshStandardMaterial,
   Group,
   CanvasTexture,
@@ -15,6 +15,17 @@ import {
   type Object3D,
   type Texture,
 } from "three";
+import { MeshPhysicalNodeMaterial } from "three/webgpu";
+
+// WebGPU is the default renderer (set in App.tsx); the matching node-based
+// material is required so colour + lighting actually drive uniforms instead
+// of being pinned at the default zero values. ?webgl=1 forces WebGL fallback,
+// in which case the classic material is still correct.
+const IS_WEBGL_FORCED =
+  typeof window !== "undefined" &&
+  new URLSearchParams(window.location.search).get("webgl") === "1";
+const MeshPhysicalMaterial = (IS_WEBGL_FORCED ? WebGLMeshPhysicalMaterial : MeshPhysicalNodeMaterial) as typeof WebGLMeshPhysicalMaterial;
+type MeshPhysicalMaterial = WebGLMeshPhysicalMaterial;
 import { useTuningStore, PART_KEYS, type PartKey } from "../lib/tuning-store";
 
 const CREASE_ANGLE = (50 * Math.PI) / 180;
@@ -23,6 +34,7 @@ const FERRARI_YELLOW = "#FFEC00";
 interface VehicleInputLike {
   left: boolean;
   right: boolean;
+  handbrake?: boolean;
 }
 
 interface CarModelProps {
@@ -36,6 +48,10 @@ interface CarModelProps {
   driftRef?: RefObject<number>;
   // For bots: numeric steer signal -1..+1 (overrides inputRef-derived steering when set).
   steerSignalRef?: RefObject<number>;
+  // Static decoration (parked cars in paddock). Skips the per-frame
+  // material/wheel/body-roll updates so dozens of these don't cost any
+  // CPU after the first paint.
+  staticDecor?: boolean;
 }
 
 const CAR_URL = "/models/car.glb";
@@ -155,7 +171,7 @@ const NODE_TO_PART: Record<string, PartKey> = {
   "right-rear-wheel": "tires",
 };
 
-export default function CarModel({ inputRef, speedRef, brakeRef, driftRef, bodyColor, steerSignalRef }: CarModelProps) {
+export default function CarModel({ inputRef, speedRef, brakeRef, driftRef, bodyColor, steerSignalRef, staticDecor = false }: CarModelProps) {
   const carGltf = useLoader(GLTFLoader, CAR_URL);
 
   // One MeshPhysicalMaterial per part key. Live-updated from tuning store.
@@ -332,23 +348,22 @@ export default function CarModel({ inputRef, speedRef, brakeRef, driftRef, bodyC
 
   const steerSmoothed = useRef(0);
   const spinAngle = useRef(0);
+  const rearSpinAngle = useRef(0);
+  const rollGroup = useRef<Group>(null);
+  const rollSmoothed = useRef(0);
 
-  useFrame((_, delta) => {
-    const dt = Math.min(delta, 0.05);
-    const inp = inputRef?.current;
-    const spd = speedRef?.current ?? 0;
-    const state = useTuningStore.getState();
-    const { tireRadius, maxSteer, parts } = state;
-
-    // Live-sync materials with tuning state every frame.
-    const mats = materialsRef.current;
-    if (mats) {
+  // Sync materials with the tuning store ON CHANGE only — not every
+  // frame. Avoids hundreds of redundant uniform writes / NodeMaterial
+  // graph dirties per second on the player + every bot.
+  useEffect(() => {
+    const apply = () => {
+      const mats = materialsRef.current;
+      if (!mats) return;
+      const parts = useTuningStore.getState().parts;
       PART_KEYS.forEach((k) => {
         const p = parts[k];
         const m = mats[k];
         if (!m) return;
-        // Per-instance body color override (used by bots so each car has a unique livery
-        // while the rest of the materials still follow the shared tuning state).
         if (k === "main-body-car" && bodyColor) {
           m.color.set(bodyColor);
         } else {
@@ -361,17 +376,36 @@ export default function CarModel({ inputRef, speedRef, brakeRef, driftRef, bodyC
         m.clearcoat = p.clearcoat;
         m.clearcoatRoughness = p.clearcoatRoughness;
       });
+    };
+    apply();
+    return useTuningStore.subscribe((s, prev) => {
+      if (s.parts !== prev.parts) apply();
+    });
+  }, [bodyColor]);
 
-      // Brake & drift modulation on tail lights
+  useFrame((_, delta) => {
+    if (staticDecor) return; // parked cars skip all per-frame work
+    const dt = Math.min(delta, 0.05);
+    const inp = inputRef?.current;
+    const spd = speedRef?.current ?? 0;
+    const state = useTuningStore.getState();
+    const { tireRadius, maxSteer, parts } = state;
+
+    // The 14 material properties are no longer rewritten every frame —
+    // they're synced from a tuning-store subscription (see useEffect below)
+    // and only when something actually changes. The only per-frame mat
+    // work is brake / drift modulation on the tail-light emissive.
+    const mats = materialsRef.current;
+    if (mats) {
       const brake = brakeRef?.current ?? 0;
       const drift = driftRef?.current ?? 0;
       const tail = mats["back-lights"];
       if (tail) {
         const base = parts["back-lights"].emissiveIntensity;
         let mult = 1;
-        if (brake > 0) mult += brake * 2.5; // bright stop-light when braking
+        if (brake > 0) mult += brake * 2.5;
         if (drift > 0.25) {
-          const blink = (Math.sin(performance.now() * 0.018) + 1) * 0.5; // 0..1 at ~3Hz
+          const blink = (Math.sin(performance.now() * 0.018) + 1) * 0.5;
           mult += drift * blink * 1.8;
         }
         tail.emissiveIntensity = base * mult;
@@ -389,15 +423,30 @@ export default function CarModel({ inputRef, speedRef, brakeRef, driftRef, bodyC
     if (frSteer.current) frSteer.current.rotation.y = steerSmoothed.current;
 
     spinAngle.current -= (spd / Math.max(0.01, tireRadius)) * dt;
-    const a = spinAngle.current;
-    if (flSpin.current) flSpin.current.rotation.z = a;
-    if (frSpin.current) frSpin.current.rotation.z = a;
-    if (rlSpin.current) rlSpin.current.rotation.z = a;
-    if (rrSpin.current) rrSpin.current.rotation.z = a;
+    // Rear wheels lock under handbrake (skid mark, not rolling). When the
+    // brake releases they catch back up to the front-wheel spin angle.
+    const handbrakeHeld = !!inp?.handbrake;
+    if (!handbrakeHeld) rearSpinAngle.current = spinAngle.current;
+    const aF = spinAngle.current;
+    const aR = rearSpinAngle.current;
+    if (flSpin.current) flSpin.current.rotation.z = aF;
+    if (frSpin.current) frSpin.current.rotation.z = aF;
+    if (rlSpin.current) rlSpin.current.rotation.z = aR;
+    if (rrSpin.current) rrSpin.current.rotation.z = aR;
+
+    // Subtle body roll — chassis leans away from the corner.
+    const drift = driftRef?.current ?? 0;
+    const speedFrac = Math.min(1, Math.abs(spd) / 30);
+    const MAX_ROLL = 0.05; // ~3°
+    const driftRoll = drift * 0.04;
+    const rollTarget = -steerSmoothed.current * speedFrac * (MAX_ROLL + driftRoll);
+    rollSmoothed.current += (rollTarget - rollSmoothed.current) * Math.min(1, dt * 5);
+    if (rollGroup.current) rollGroup.current.rotation.z = rollSmoothed.current;
   });
 
   return (
     <group>
+      <group ref={rollGroup}>
       <group rotation={[rakeRad, 0, 0]}>
         <group rotation={[0, Math.PI / 2, 0]} scale={carScale} position={[0, bodyYOffset, 0]}>
           <primitive object={bodyScene} />
@@ -462,6 +511,7 @@ export default function CarModel({ inputRef, speedRef, brakeRef, driftRef, bodyC
             </group>
           )}
         </group>
+      </group>
       </group>
     </group>
   );

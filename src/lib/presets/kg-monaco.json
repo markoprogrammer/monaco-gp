@@ -15,10 +15,10 @@
     "tires": { "color": "#0a0a0a", "metalness": 0, "roughness": 0.95, "emissive": "#000000", "emissiveIntensity": 0, "clearcoat": 0, "clearcoatRoughness": 0 },
     "rims": { "color": "#ffffff", "metalness": 0.7, "roughness": 0.25, "emissive": "#000000", "emissiveIntensity": 0, "clearcoat": 0.5, "clearcoatRoughness": 0.1 }
   },
-  "carScale": 4.2,
-  "bodyYOffset": -0.4,
-  "tireRadius": 0.3,
-  "maxSteer": 1,
+  "carScale": 4.9,
+  "bodyYOffset": -0.24,
+  "tireRadius": 0.34,
+  "maxSteer": 0.82,
   "rakeRad": 0.04,
   "shieldText": "KG",
   "raceNumber": "27",
@@ -38,7 +38,7 @@
   "plateH": 0.025,
   "ambientIntensity": 1,
   "rimThreshold": 0.01,
-  "tireWrapOuter": 0.081,
+  "tireWrapOuter": 0.077,
   "tireWrapInner": 0.06,
   "tireWrapWidth": 0.067
 }

@@ -120,7 +120,7 @@ export const useTuningStore = create<TuningState>()(
         });
         return data as Partial<TuningState>;
       },
-      version: 7,
+      version: 9,
     },
   ),
 );

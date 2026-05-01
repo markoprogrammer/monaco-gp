@@ -184,11 +184,25 @@ export function subscribePresenceCount(onChange: (count: number) => void): () =>
   };
 }
 
+export interface SelfPose {
+  px: number; py: number; pz: number;
+  qx: number; qy: number; qz: number; qw: number;
+  speed: number;
+}
+let selfPose: SelfPose | null = null;
+export function getSelfPose(): SelfPose | null {
+  return selfPose;
+}
+
 export function broadcastCarState(
   px: number, py: number, pz: number,
   qx: number, qy: number, qz: number, qw: number,
   speed: number,
 ): void {
+  // Always cache so the minimap (and any other local-only consumer) can read
+  // the live position even when the player is alone in the room.
+  selfPose = { px, py, pz, qx, qy, qz, qw, speed };
+
   if (!channel) return;
   // Optimisation: don't broadcast position when alone. Lap times still go to
   // the DB via LapSaver, and presence/join events still flow on this channel.

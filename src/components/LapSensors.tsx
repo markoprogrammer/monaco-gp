@@ -6,7 +6,7 @@ import { useGameState } from "../hooks/useGameState";
 
 function useSensorPos(t: number) {
   return useMemo(() => {
-    const curve = new CatmullRomCurve3(TRACK_POINTS, true, "catmullrom", 0.5);
+    const curve = new CatmullRomCurve3(TRACK_POINTS, true, "centripetal", 0.5);
     const pt = curve.getPointAt(t);
     const tan = curve.getTangentAt(t);
     return {
@@ -22,9 +22,12 @@ export default function LapSensors() {
   const hitSector1 = useGameState((s) => s.hitSector1);
   const hitSector2 = useGameState((s) => s.hitSector2);
 
-  const finish = useSensorPos(0.29);
-  const sector1 = useSensorPos(0.62);
-  const sector2 = useSensorPos(0.91);
+  // Car spawns at t=0.78 driving in the direction of DECREASING t, so the
+  // start line sits at a slightly lower t (just in front of the car), and
+  // sectors follow in -t order: finish → sector1 → sector2 → finish.
+  const finish = useSensorPos(0.77);
+  const sector1 = useSensorPos(0.44);
+  const sector2 = useSensorPos(0.11);
 
   return (
     <>

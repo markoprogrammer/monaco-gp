@@ -12,6 +12,7 @@ import { VEHICLE } from "../lib/physics-config";
 import { TRACK_POINTS } from "../lib/track-data";
 import { registerEntry, unregisterEntry } from "../lib/race-progress";
 import { broadcastCarState } from "../lib/multiplayer";
+import { useIntroStore } from "../lib/intro-store";
 import CarModel from "./CarModel";
 import CarEffects, { type EffectsHandle } from "./CarEffects";
 
@@ -23,7 +24,7 @@ interface CarProps {
   onReady?: (rb: RapierRigidBody) => void;
 }
 
-const SPAWN_T = 0.28;
+const SPAWN_T = 0.78;
 const RESPAWN_SAMPLES = 200;
 
 export default function Car({ onReady }: CarProps) {
@@ -38,6 +39,12 @@ export default function Car({ onReady }: CarProps) {
 
   // Wall contact tracking — count of active wall contacts
   const wallContactCount = useRef(0);
+  // How long the chassis has been tilted past the upside-down threshold;
+  // crossing this long enough triggers an automatic respawn.
+  const upsideDownTime = useRef(0);
+  // How long the car has been beyond a sane corridor around the track
+  // (e.g. flew into the infield / fell off the world).
+  const offTrackTime = useRef(0);
 
   // Brake & drift signals for tail-light modulation in CarModel
   const brakeRef = useRef(0);
@@ -58,17 +65,19 @@ export default function Car({ onReady }: CarProps) {
   const lastT = useRef(SPAWN_T);
 
   const { spawnPos, spawnRot, trackSamples, curve } = useMemo(() => {
-    const c = new CatmullRomCurve3(TRACK_POINTS, true, "catmullrom", 0.5);
+    const c = new CatmullRomCurve3(TRACK_POINTS, true, "centripetal", 0.5);
     const pt = c.getPointAt(SPAWN_T);
     const tan = c.getTangentAt(SPAWN_T);
-    const angle = Math.atan2(tan.x, tan.z) + Math.PI;
+    // Drive in the direction of increasing t (matches sensor order
+    // finish → sector1 → sector2 → finish).
+    const angle = Math.atan2(tan.x, tan.z);
 
     const samples: { x: number; y: number; z: number; angle: number; t: number }[] = [];
     for (let i = 0; i < RESPAWN_SAMPLES; i++) {
       const t = i / RESPAWN_SAMPLES;
       const p = c.getPointAt(t);
       const tn = c.getTangentAt(t);
-      samples.push({ x: p.x, y: p.y, z: p.z, angle: Math.atan2(tn.x, tn.z) + Math.PI, t });
+      samples.push({ x: p.x, y: p.y, z: p.z, angle: Math.atan2(tn.x, tn.z), t });
     }
 
     return {
@@ -118,6 +127,16 @@ export default function Car({ onReady }: CarProps) {
 
     const controls = input.current;
 
+    // Lock all driving inputs until the start lights say GO.
+    const introPhase = useIntroStore.getState().phase;
+    if (introPhase !== "racing") {
+      // Hold the car still and skip applying any forces.
+      rb.setLinvel({ x: 0, y: 0, z: 0 }, true);
+      rb.setAngvel({ x: 0, y: 0, z: 0 }, true);
+      currentSpeed.current = 0;
+      return;
+    }
+
     // Manual respawn on R only
     if (controls.reset) {
       controls.reset = false;
@@ -127,7 +146,7 @@ export default function Car({ onReady }: CarProps) {
 
     // --- Update race progress (using nearest spline sample) ---
     const pos = rb.translation();
-    const { idx } = findNearest(pos.x, pos.z);
+    const { idx, dist } = findNearest(pos.x, pos.z);
     const t = idx / RESPAWN_SAMPLES;
     if (lastT.current > 0.85 && t < 0.15) lap.current += 1;
     else if (lastT.current < 0.15 && t > 0.85) lap.current -= 1;
@@ -135,10 +154,43 @@ export default function Car({ onReady }: CarProps) {
     progressEntry.progress = lap.current + t;
     progressEntry.speed = Math.abs(currentSpeed.current);
 
+    // Off-track auto-respawn: TRACK_WIDTH is 18 (half = 9), so anything
+    // 35+ units from the spline AND off the road for >1s gets warped
+    // back. Falling off the world (y below ground) respawns instantly.
+    if (pos.y < -8) {
+      respawn(rb);
+      offTrackTime.current = 0;
+      return;
+    }
+    if (dist > 35) {
+      offTrackTime.current += dt;
+      if (offTrackTime.current > 1.0) {
+        respawn(rb);
+        offTrackTime.current = 0;
+        return;
+      }
+    } else {
+      offTrackTime.current = 0;
+    }
+
     const inWallContact = wallContactCount.current > 0;
 
     const rotation = rb.rotation();
     _quat.set(rotation.x, rotation.y, rotation.z, rotation.w);
+    // Up-vector test: when the chassis up-axis (local +Y) tilts past
+    // ~70° from world-up, the car is on its side or roof. Hold that
+    // pose for >1.4s and we auto-respawn at the nearest spline sample.
+    const _localUp = new Vector3(0, 1, 0).applyQuaternion(_quat);
+    if (_localUp.y < 0.35) {
+      upsideDownTime.current += dt;
+      if (upsideDownTime.current > 1.4) {
+        respawn(rb);
+        upsideDownTime.current = 0;
+        return;
+      }
+    } else {
+      upsideDownTime.current = 0;
+    }
     _forward.set(0, 0, -1).applyQuaternion(_quat);
     _forward.y = 0;
     _forward.normalize();
@@ -219,8 +271,11 @@ export default function Car({ onReady }: CarProps) {
       const speedRatio = absSpeed / VEHICLE.maxForwardSpeed;
       const steerFactor = 1 - speedRatio * (1 - VEHICLE.minSteerFactor);
       const driftBoost = controls.handbrake ? VEHICLE.driftSteerBoost : 1;
-      // J-turn: handbrake on the spot spins the car fast
-      const spinBoost = controls.handbrake && absSpeed < 15 ? 3.0 : 1;
+      // J-turn: handbrake + steering spins the car. Strong on the spot,
+      // smaller boost when launched so it just adds bite to the rotation.
+      const spinBoost = controls.handbrake
+        ? (absSpeed < 4 ? 3.0 : absSpeed < 15 ? 1.6 : 1)
+        : 1;
       const reverseSign = speed < 0 ? -1 : 1;
       const angularVel = steerDir * VEHICLE.maxSteerSpeed * steerFactor * driftBoost * spinBoost * reverseSign;
       rb.setAngvel({ x: 0, y: angularVel, z: 0 }, true);
@@ -268,15 +323,19 @@ export default function Car({ onReady }: CarProps) {
       const tag = (e.other.rigidBody?.userData as { tag?: string } | undefined)?.tag;
       if (tag === "wall") {
         wallContactCount.current += 1;
-        // One-shot impact slowdown — only on first contact (not repeated bumps within same scrape)
         if (wallContactCount.current === 1) {
           const preSpeed = Math.abs(currentSpeed.current);
-          currentSpeed.current *= VEHICLE.wallImpactSpeedFactor;
-          // Audio + spark intensity scales with impact speed
           const intensity = Math.min(1, preSpeed / 50);
-          if (intensity > 0.12) {
-            playCrash(intensity);
-            // Spawn sparks at car body level (slightly off centre)
+          // Slow-down scales with intensity: light brush keeps most of the
+          // speed, hard hit kills almost all of it. Lerp between the
+          // tuned baseline factor (cheap brush) and 0.25 (hard slam).
+          const factor = VEHICLE.wallImpactSpeedFactor +
+            (0.25 - VEHICLE.wallImpactSpeedFactor) * intensity;
+          currentSpeed.current *= factor;
+          if (intensity > 0.08) {
+            // Volume passed to crash sound is scaled non-linearly so
+            // gentle scrapes are quiet but big hits really thump.
+            playCrash(Math.pow(intensity, 0.7));
             const rb = rigidBody.current;
             if (rb) {
               const p = rb.translation();
@@ -306,7 +365,7 @@ export default function Car({ onReady }: CarProps) {
         rotation={spawnRot}
         angularDamping={VEHICLE.angularDamping}
         mass={VEHICLE.mass}
-        enabledRotations={[false, true, false]}
+        enabledRotations={[true, true, true]}
         onCollisionEnter={onCollisionEnter}
         onCollisionExit={onCollisionExit}
       >

@@ -71,10 +71,10 @@ export default function Bot({
   const updateEngine = useBotEngineSound(freqOffset);
 
   const { curve, initialPos, initialAngle } = useMemo(() => {
-    const c = new CatmullRomCurve3(TRACK_POINTS, true, "catmullrom", 0.5);
+    const c = new CatmullRomCurve3(TRACK_POINTS, true, "centripetal", 0.5);
     const p = c.getPointAt(startT);
     const tn = c.getTangentAt(startT);
-    const angle = Math.atan2(tn.x, tn.z) + Math.PI;
+    const angle = Math.atan2(tn.x, tn.z);
     const right = new Vector3(-tn.z, 0, tn.x).normalize().multiplyScalar(lateralOffset);
     return {
       curve: c,
@@ -151,7 +151,7 @@ export default function Bot({
     const lateralWithPert = lateral.current + lateralPert.current;
     _right.set(-_tan.z, 0, _tan.x).normalize().multiplyScalar(lateralWithPert);
 
-    const angle = Math.atan2(_tan.x, _tan.z) + Math.PI + yawPert.current;
+    const angle = Math.atan2(_tan.x, _tan.z) + yawPert.current;
     const ha = angle / 2;
 
     // Derive a steering signal (-1..+1) from yaw rate, for visual front-wheel turning.

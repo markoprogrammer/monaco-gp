@@ -7,39 +7,35 @@ export const VEHICLE = {
   length: 4.2,
   mass: 20,
 
-  // Speed (units per second)
-  maxForwardSpeed: 105,          // ~378 km/h, full F1 pace
-  maxReverseSpeed: 14,
-  accelerationRate: 32,          // explosive launch, F1-like power-to-weight
-  brakeRate: 38,                 // strong braking — Space is the main pedal
-  coastDecel: 7,                 // engine brake when off throttle
+  // Speed (units per second) — punchy F1 pace with snappy launch.
+  maxForwardSpeed: 110,
+  maxReverseSpeed: 16,
+  accelerationRate: 38,         // explosive launch
+  brakeRate: 44,                // strong, responsive trail-brake
+  coastDecel: 6,
 
-  // Steering (radians per second)
-  maxSteerSpeed: 1.8,            // less twitchy
-  minSteerFactor: 0.08,          // almost no steering at top speed — MUST slow down
+  // Steering (radians per second) — quicker hands, retains grip mid-corner.
+  maxSteerSpeed: 2.2,
+  minSteerFactor: 0.16,         // still maneuverable at top speed
 
-  // Drift / handbrake
-  driftLateralGrip: 0.12,        // slidier drift
-  normalLateralGrip: 0.82,       // slides on fast corners — must brake before turn
-  handbrakeDecel: 8,             // stronger handbrake slowdown
-  driftSteerBoost: 1.3,          // extra steering while drifting
+  // Drift / handbrake — slidy but recoverable; arcade-fun.
+  driftLateralGrip: 0.08,       // looser drift
+  normalLateralGrip: 0.88,      // grippy on the racing line
+  handbrakeDecel: 6,            // softer handbrake slowdown so drifts carry speed
+  driftSteerBoost: 1.55,        // extra rotation while sideways
 
   // Restitution (bounciness off walls)
-  restitution: 0.4,              // bouncier off walls
+  restitution: 0.35,
 
   // Damping
-  angularDamping: 8.0,           // less damping = car feels lighter
+  angularDamping: 7.0,
 
   // Spawn
   spawnHeight: 1,
 
-  // Collider Y offset — shifts the collider up within the rigid body so the
-  // visual car settles closer to the ground (wheels on the road instead of floating).
-  // Half-height 0.3 + wheel-bottom local -0.277 → 0.023 puts wheels exactly on road.
-  // A bit more lets the tires "bite" into the surface for a planted look.
   colliderYOffset: 0.05,
 
   // Wall hit — instant speed drop on impact, gentle decel while scraping
-  wallImpactSpeedFactor: 0.7,    // currentSpeed *= this on collision enter
-  wallScrapeDecel: 6,            // gentle additional decel while still in contact
+  wallImpactSpeedFactor: 0.78,  // brushes barely cost speed
+  wallScrapeDecel: 7,
 } as const;
